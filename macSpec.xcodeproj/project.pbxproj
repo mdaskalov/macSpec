@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		2661E47C1D54AD1200061ED0 /* WaveWiew.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2661E47B1D54AD1200061ED0 /* WaveWiew.swift */; };
+		2661E47C1D54AD1200061ED0 /* WaveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2661E47B1D54AD1200061ED0 /* WaveView.swift */; };
 		2661E4811D54AD8A00061ED0 /* AudioInputHandler.m in Sources */ = {isa = PBXBuildFile; fileRef = 2661E4801D54AD8A00061ED0 /* AudioInputHandler.m */; };
 		2661E4841D54ADC400061ED0 /* RingBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2661E4831D54ADC400061ED0 /* RingBuffer.swift */; };
 		266B81CB1D47A7FD000261CE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266B81CA1D47A7FD000261CE /* AppDelegate.swift */; };
@@ -19,7 +19,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		2661E47B1D54AD1200061ED0 /* WaveWiew.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WaveWiew.swift; sourceTree = "<group>"; };
+		2661E47B1D54AD1200061ED0 /* WaveView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WaveView.swift; sourceTree = "<group>"; };
 		2661E47F1D54AD8A00061ED0 /* AudioInputHandler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = AudioInputHandler.h; path = macSpec/AudioInputHandler.h; sourceTree = "<group>"; };
 		2661E4801D54AD8A00061ED0 /* AudioInputHandler.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = AudioInputHandler.m; path = macSpec/AudioInputHandler.m; sourceTree = "<group>"; };
 		2661E4831D54ADC400061ED0 /* RingBuffer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RingBuffer.swift; sourceTree = "<group>"; };
@@ -76,7 +76,7 @@
 			children = (
 				26E960751D58C7C100DD54EB /* AudioInput.swift */,
 				2661E4831D54ADC400061ED0 /* RingBuffer.swift */,
-				2661E47B1D54AD1200061ED0 /* WaveWiew.swift */,
+				2661E47B1D54AD1200061ED0 /* WaveView.swift */,
 				26C3E8101D4AA6F800AF5FED /* SpecView.swift */,
 				266B81CC1D47A7FD000261CE /* ViewController.swift */,
 				266B81CE1D47A7FD000261CE /* Assets.xcassets */,
@@ -161,7 +161,7 @@
 			files = (
 				2661E4811D54AD8A00061ED0 /* AudioInputHandler.m in Sources */,
 				26E960761D58C7C100DD54EB /* AudioInput.swift in Sources */,
-				2661E47C1D54AD1200061ED0 /* WaveWiew.swift in Sources */,
+				2661E47C1D54AD1200061ED0 /* WaveView.swift in Sources */,
 				266B81CD1D47A7FD000261CE /* ViewController.swift in Sources */,
 				266B81CB1D47A7FD000261CE /* AppDelegate.swift in Sources */,
 				26C3E8111D4AA6F800AF5FED /* SpecView.swift in Sources */,
