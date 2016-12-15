@@ -7,19 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2661E47C1D54AD1200061ED0 /* WaveWiew.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2661E47B1D54AD1200061ED0 /* WaveWiew.swift */; };
+		2661E4811D54AD8A00061ED0 /* AudioInputHandler.m in Sources */ = {isa = PBXBuildFile; fileRef = 2661E4801D54AD8A00061ED0 /* AudioInputHandler.m */; };
+		2661E4841D54ADC400061ED0 /* RingBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2661E4831D54ADC400061ED0 /* RingBuffer.swift */; };
 		266B81CB1D47A7FD000261CE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266B81CA1D47A7FD000261CE /* AppDelegate.swift */; };
 		266B81CD1D47A7FD000261CE /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266B81CC1D47A7FD000261CE /* ViewController.swift */; };
 		266B81CF1D47A7FD000261CE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 266B81CE1D47A7FD000261CE /* Assets.xcassets */; };
 		266B81D21D47A7FD000261CE /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 266B81D01D47A7FD000261CE /* Main.storyboard */; };
+		26C3E8111D4AA6F800AF5FED /* SpecView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C3E8101D4AA6F800AF5FED /* SpecView.swift */; };
+		26E960761D58C7C100DD54EB /* AudioInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E960751D58C7C100DD54EB /* AudioInput.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		2661E47B1D54AD1200061ED0 /* WaveWiew.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = WaveWiew.swift; sourceTree = "<group>"; };
+		2661E47F1D54AD8A00061ED0 /* AudioInputHandler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = AudioInputHandler.h; path = macSpec/AudioInputHandler.h; sourceTree = "<group>"; };
+		2661E4801D54AD8A00061ED0 /* AudioInputHandler.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = AudioInputHandler.m; path = macSpec/AudioInputHandler.m; sourceTree = "<group>"; };
+		2661E4831D54ADC400061ED0 /* RingBuffer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = RingBuffer.swift; sourceTree = "<group>"; };
 		266B81C71D47A7FC000261CE /* macSpec.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = macSpec.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		266B81CA1D47A7FD000261CE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		266B81CC1D47A7FD000261CE /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		266B81CE1D47A7FD000261CE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		266B81D11D47A7FD000261CE /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
 		266B81D31D47A7FD000261CE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		268559AA1D489CCB001C6310 /* macSpec-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "macSpec-Bridging-Header.h"; sourceTree = "<group>"; };
+		26C3E8101D4AA6F800AF5FED /* SpecView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SpecView.swift; sourceTree = "<group>"; };
+		26E960751D58C7C100DD54EB /* AudioInput.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AudioInput.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -33,9 +45,19 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2661E4821D54AD9300061ED0 /* AudioSpectrum */ = {
+			isa = PBXGroup;
+			children = (
+				2661E47F1D54AD8A00061ED0 /* AudioInputHandler.h */,
+				2661E4801D54AD8A00061ED0 /* AudioInputHandler.m */,
+			);
+			name = AudioSpectrum;
+			sourceTree = "<group>";
+		};
 		266B81BE1D47A7FC000261CE = {
 			isa = PBXGroup;
 			children = (
+				2661E4821D54AD9300061ED0 /* AudioSpectrum */,
 				266B81C91D47A7FC000261CE /* macSpec */,
 				266B81C81D47A7FC000261CE /* Products */,
 			);
@@ -52,11 +74,16 @@
 		266B81C91D47A7FC000261CE /* macSpec */ = {
 			isa = PBXGroup;
 			children = (
-				266B81CA1D47A7FD000261CE /* AppDelegate.swift */,
+				26E960751D58C7C100DD54EB /* AudioInput.swift */,
+				2661E4831D54ADC400061ED0 /* RingBuffer.swift */,
+				2661E47B1D54AD1200061ED0 /* WaveWiew.swift */,
+				26C3E8101D4AA6F800AF5FED /* SpecView.swift */,
 				266B81CC1D47A7FD000261CE /* ViewController.swift */,
 				266B81CE1D47A7FD000261CE /* Assets.xcassets */,
 				266B81D01D47A7FD000261CE /* Main.storyboard */,
+				266B81CA1D47A7FD000261CE /* AppDelegate.swift */,
 				266B81D31D47A7FD000261CE /* Info.plist */,
+				268559AA1D489CCB001C6310 /* macSpec-Bridging-Header.h */,
 			);
 			path = macSpec;
 			sourceTree = "<group>";
@@ -131,8 +158,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2661E4811D54AD8A00061ED0 /* AudioInputHandler.m in Sources */,
+				26E960761D58C7C100DD54EB /* AudioInput.swift in Sources */,
+				2661E47C1D54AD1200061ED0 /* WaveWiew.swift in Sources */,
 				266B81CD1D47A7FD000261CE /* ViewController.swift in Sources */,
 				266B81CB1D47A7FD000261CE /* AppDelegate.swift in Sources */,
+				26C3E8111D4AA6F800AF5FED /* SpecView.swift in Sources */,
+				2661E4841D54ADC400061ED0 /* RingBuffer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -236,11 +268,18 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
 				COMBINE_HIDPI_IMAGES = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
 				INFOPLIST_FILE = macSpec/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.innersoft.macSpec;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "macSpec/macSpec-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
 		};
@@ -248,11 +287,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
 				COMBINE_HIDPI_IMAGES = YES;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)",
+				);
 				INFOPLIST_FILE = macSpec/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.innersoft.macSpec;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "macSpec/macSpec-Bridging-Header.h";
 			};
 			name = Release;
 		};
@@ -275,6 +320,7 @@
 				266B81D81D47A7FD000261CE /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
