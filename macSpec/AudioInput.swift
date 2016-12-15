@@ -11,7 +11,7 @@ import CoreAudio
 
 class AudioInput : NSObject {
     
-    private var au: AudioComponentInstance = nil
+    fileprivate var au: AudioComponentInstance? = nil
     
     var inputBufferList: AudioBufferList
     var ringBuffers: [RingBuffer]
@@ -19,7 +19,7 @@ class AudioInput : NSObject {
     
     static let sharedInstance = AudioInput()
     
-    private override init() {
+    fileprivate override init() {
         var osStatus = noErr
         
         var description = AudioComponentDescription(
@@ -32,7 +32,7 @@ class AudioInput : NSObject {
         let component = AudioComponentFindNext(nil, &description)
         assert(component != nil, "Find input device failed: \(osStatus)")
         
-        osStatus = AudioComponentInstanceNew(component, &au)
+        osStatus = AudioComponentInstanceNew(component!, &au)
         assert(osStatus == noErr, "Crating new instance failed: \(osStatus)")
         
         let kInput:UInt32 = 1
@@ -40,10 +40,10 @@ class AudioInput : NSObject {
         var enable:UInt32 = 1
         var disable:UInt32 = 0
         
-        osStatus = AudioUnitSetProperty(au, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, kInput, &enable, UInt32(sizeof(UInt32)))
+        osStatus = AudioUnitSetProperty(au!, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, kInput, &enable, UInt32(MemoryLayout<UInt32>.size))
         assert(osStatus == noErr, "Enable input failed: \(osStatus)")
         
-        osStatus = AudioUnitSetProperty(au, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, kOutput, &disable, UInt32(sizeof(UInt32)))
+        osStatus = AudioUnitSetProperty(au!, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, kOutput, &disable, UInt32(MemoryLayout<UInt32>.size))
         assert(osStatus == noErr, "Enable output failed: \(osStatus)")
         
         var address = AudioObjectPropertyAddress(
@@ -53,28 +53,28 @@ class AudioInput : NSObject {
         )
         
         var inputDevice = AudioDeviceID(0)
-        var inputDeviceSize:UInt32 = UInt32(sizeof(AudioDeviceID))
+        var inputDeviceSize:UInt32 = UInt32(MemoryLayout<AudioDeviceID>.size)
 
         
         osStatus = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &inputDeviceSize, &inputDevice)
         assert(osStatus == noErr, "Get default device failed: \(osStatus)")
         
         osStatus = AudioUnitSetProperty(
-            au,
+            au!,
             AudioUnitPropertyID(kAudioOutputUnitProperty_CurrentDevice),
             AudioUnitScope(kAudioUnitScope_Global),
             0,
             &inputDevice,
-            UInt32(sizeof(AudioDeviceID))
+            UInt32(MemoryLayout<AudioDeviceID>.size)
         )
         assert(osStatus == noErr, "Set the unit to the default input device failed: \(osStatus)")
         
         var inputFormat = AudioStreamBasicDescription()
-        var inputFormatSize:UInt32 = UInt32(sizeof(AudioStreamBasicDescription))
+        var inputFormatSize:UInt32 = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
         var outputFormat = AudioStreamBasicDescription()
         
         osStatus = AudioUnitGetProperty(
-            au,
+            au!,
             AudioUnitPropertyID(kAudioUnitProperty_StreamFormat),
             AudioUnitScope(kAudioUnitScope_Input),
             kInput,
@@ -84,7 +84,7 @@ class AudioInput : NSObject {
         assert(osStatus == noErr, "Get input device format failed: \(osStatus)")
         
         osStatus = AudioUnitGetProperty(
-            au,
+            au!,
             AudioUnitPropertyID(kAudioUnitProperty_StreamFormat),
             AudioUnitScope(kAudioUnitScope_Output),
             kOutput,
@@ -99,27 +99,27 @@ class AudioInput : NSObject {
         outputFormat.mFormatID = kAudioFormatLinearPCM
         outputFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagsNativeEndian | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved
         outputFormat.mFramesPerPacket = 1
-        outputFormat.mBytesPerFrame = UInt32(sizeof(Float))
-        outputFormat.mBytesPerPacket = UInt32(sizeof(Float))
-        outputFormat.mBitsPerChannel = 8 * UInt32(sizeof(Float))
+        outputFormat.mBytesPerFrame = UInt32(MemoryLayout<Float>.size)
+        outputFormat.mBytesPerPacket = UInt32(MemoryLayout<Float>.size)
+        outputFormat.mBitsPerChannel = 8 * UInt32(MemoryLayout<Float>.size)
         
         osStatus = AudioUnitSetProperty(
-            au,
+            au!,
             AudioUnitPropertyID(kAudioUnitProperty_StreamFormat),
             AudioUnitScope(kAudioUnitScope_Output),
             kInput,
             &outputFormat,
-            UInt32(sizeof(AudioStreamBasicDescription))
+            UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
         )
         assert(osStatus == noErr, "Set output format failed: \(osStatus)")
         
         sampleRate = Float(outputFormat.mSampleRate)
         
         var bufferSizeFrames: UInt32 = 0
-        var bufferSizeFramesSize = UInt32(sizeof(UInt32))
+        var bufferSizeFramesSize = UInt32(MemoryLayout<UInt32>.size)
         
         osStatus = AudioUnitGetProperty(
-            au,
+            au!,
             AudioUnitPropertyID(kAudioDevicePropertyBufferFrameSize),
             AudioUnitScope(kAudioUnitScope_Global),
             0,
@@ -128,10 +128,10 @@ class AudioInput : NSObject {
         )
         assert(osStatus == noErr, "Get buffer frame size failed: \(osStatus)")
         
-        let bufferSizeBytes:UInt32 = bufferSizeFrames * UInt32(sizeof(Float))
+        let bufferSizeBytes:UInt32 = bufferSizeFrames * UInt32(MemoryLayout<Float>.size)
         let channels:UInt32 = inputFormat.mChannelsPerFrame
         
-        var buffer = [Float](count: Int(bufferSizeBytes), repeatedValue: 0)
+        var buffer = [Float](repeating: 0, count: Int(bufferSizeBytes))
         inputBufferList = AudioBufferList(
             mNumberBuffers: 1,
             mBuffers: AudioBuffer(
@@ -153,71 +153,74 @@ class AudioInput : NSObject {
          }
          */
         
-        ringBuffers = [RingBuffer](count: Int(channels), repeatedValue: RingBuffer())
+        ringBuffers = [RingBuffer](repeating: RingBuffer(), count: Int(channels))
         
         super.init()
 
         var callbackStruct = AURenderCallbackStruct(
             inputProc: { (
-                inRefCon: UnsafeMutablePointer<Void>,
+                inRefCon: UnsafeMutableRawPointer,
                 ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
                 inTimeStamp: UnsafePointer<AudioTimeStamp>,
                 inBusNumber: UInt32,
                 inNumberFrame: UInt32,
-                ioData: UnsafeMutablePointer<AudioBufferList>) -> OSStatus in
+                ioData: UnsafeMutablePointer<AudioBufferList>?) -> OSStatus in
                 
-                //let audioInput_nok = UnsafeMutablePointer<AudioInput>(inRefCon).memory
-                let audioInput = Unmanaged<AudioInput>.fromOpaque(COpaquePointer(inRefCon)).takeUnretainedValue()
+                let audioInput = Unmanaged<AudioInput>.fromOpaque(inRefCon).takeUnretainedValue()
 
-                let err = AudioUnitRender(
-                    audioInput.au,
-                    ioActionFlags,
-                    inTimeStamp,
-                    inBusNumber,
-                    inNumberFrame,
-                    ioData
-                )
-                
-                if err == noErr {
-                    var i = 0
-                    for buffer in UnsafeMutableAudioBufferListPointer(ioData) {
-                        audioInput.ringBuffers[i].pushSamples(UnsafeMutablePointer<Float>(buffer.mData), count: Int(buffer.mDataByteSize) / sizeof(Float))
-                        i += 1
+                var err = noErr
+                if (ioData != nil) {
+                    err = AudioUnitRender(
+                        audioInput.au!,
+                        ioActionFlags,
+                        inTimeStamp,
+                        inBusNumber,
+                        inNumberFrame,
+                        ioData!
+                    )
+                    
+                    if err == noErr {
+                        var i = 0
+                        for buffer in UnsafeMutableAudioBufferListPointer(ioData)! {
+                            let buf:UnsafeMutablePointer<Float> = UnsafeMutableRawPointer(buffer.mData!).assumingMemoryBound(to: Float.self)
+                            audioInput.ringBuffers[i].pushSamples(buf, count: Int(buffer.mDataByteSize) / MemoryLayout<Float>.size)
+                            i += 1
+                        }
                     }
+                    
                 }
-
                 return err
             },
-            inputProcRefCon: UnsafeMutablePointer(unsafeAddressOf(self))
+            inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
         )
  
         osStatus = AudioUnitSetProperty(
-            au,
+            au!,
             AudioUnitPropertyID(kAudioOutputUnitProperty_SetInputCallback),
             AudioUnitScope(kAudioUnitScope_Global),
             0,
             &callbackStruct,
-            UInt32(sizeof(AURenderCallbackStruct))
+            UInt32(MemoryLayout<AURenderCallbackStruct>.size)
         )
         assert(osStatus == noErr, "Set input callback failed: \(osStatus)")
 
-        osStatus = AudioUnitInitialize(au);
+        osStatus = AudioUnitInitialize(au!);
         assert(osStatus == noErr, "Audio unit inizialisation failed: \(osStatus)")
 
     }
     
     
     deinit {
-        AudioComponentInstanceDispose(au)
+        AudioComponentInstanceDispose(au!)
     }
     
     func start() {
-        assert(AudioOutputUnitStart(au) == noErr, "Failed to start the audio unit.")
+        assert(AudioOutputUnitStart(au!) == noErr, "Failed to start the audio unit.")
         
     }
     
     func stop() {
-        assert(AudioOutputUnitStop(au) == noErr, "Failed to stop the audio unit.")
+        assert(AudioOutputUnitStop(au!) == noErr, "Failed to stop the audio unit.")
     }
     
     /*

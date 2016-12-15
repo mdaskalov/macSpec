@@ -675,7 +675,7 @@
                         <rect key="frame" x="0.0" y="0.0" width="630" height="380"/>
                         <autoresizingMask key="autoresizingMask"/>
                         <subviews>
-                            <customView translatesAutoresizingMaskIntoConstraints="NO" id="I00-os-9m4" customClass="WaveWiew" customModule="macSpec" customModuleProvider="target">
+                            <customView translatesAutoresizingMaskIntoConstraints="NO" id="I00-os-9m4" customClass="WaveView" customModule="macSpec" customModuleProvider="target">
                                 <rect key="frame" x="20" y="244" width="220" height="116"/>
                                 <constraints>
                                     <constraint firstAttribute="width" constant="220" id="6Tu-tk-Hl0"/>

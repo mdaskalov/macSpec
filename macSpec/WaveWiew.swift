@@ -14,34 +14,34 @@ let kGain:Float = 1
 
 class WaveView: NSView {
     
-    var waveform = [Float](count: kWaveformLength, repeatedValue: 0.0)
+    var waveform = [Float](repeating: 0.0, count: kWaveformLength)
     
-    override func drawRect(dirtyRect: NSRect) {
-        super.drawRect(dirtyRect)
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
         
         //CATransaction.begin()
         //CATransaction.setDisableActions(true)
         
         NSRectFill(dirtyRect)
-        NSColor.whiteColor().set()
+        NSColor.white.set()
         let path = NSBezierPath()
         
         let size = self.frame.size
         
         let xScale = size.width / CGFloat(kWaveViewLength);
         
-        path.moveToPoint(NSMakePoint(0, CGFloat(waveform[0] * kGain * 0.5 + 0.5) * size.height))
+        path.move(to: NSMakePoint(0, CGFloat(waveform[0] * kGain * 0.5 + 0.5) * size.height))
         for i in 1...kWaveViewLength {
             let x = xScale * CGFloat(i)
             let y = CGFloat(waveform[i] * kGain * 0.5 + 0.5) * size.height
-            path.lineToPoint(NSMakePoint(x, y))
+            path.line(to: NSMakePoint(x, y))
         }
         path.lineWidth = 1
         path.stroke()
         //CATransaction.commit()
     }
     
-    func generateWaveform(phase: Double) {
+    func generateWaveform(_ phase: Double) {
         for i in 0..<waveform.count {
             waveform[i] = 1.0 * sin(Float(Double(i)*phase)/64.0)
         }

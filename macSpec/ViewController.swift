@@ -22,7 +22,7 @@ class ViewController: NSViewController {
         super.viewDidLoad()
 
         // Do any additional setup after loading the view.
-        NSTimer.scheduledTimerWithTimeInterval(1.0/60.0, target: self, selector: #selector(ViewController.redraw), userInfo: nil, repeats: true)
+        Timer.scheduledTimer(timeInterval: 1.0/60.0, target: self, selector: #selector(ViewController.redraw), userInfo: nil, repeats: true)
     }
 
     func redraw() {
@@ -42,42 +42,42 @@ class ViewController: NSViewController {
         specView.needsDisplay = true
     }
 
-    @IBAction func modeSelected(sender: AnyObject) {
+    @IBAction func modeSelected(_ sender: AnyObject) {
         switch (sender as! NSSegmentedControl).selectedSegment {
         case 0:
             running = true
             generated = false
             testSlider.doubleValue = 0
-            testSlider.enabled = false
+            testSlider.isEnabled = false
         case 1:
             running = false
             generated = false
             waveView.generateWaveform(sender.doubleValue)
             specView.calculateSpectrum(waveView.waveform)
             waveView.needsDisplay = true
-            testSlider.enabled = true
+            testSlider.isEnabled = true
         case 2:
             running = false
             generated = true
-            testSlider.enabled = false
+            testSlider.isEnabled = false
         default:
             break
         }
         redraw()
     }
     
-    @IBAction func updatedTestSlider(sender: NSSlider) {
+    @IBAction func updatedTestSlider(_ sender: NSSlider) {
         waveView.generateWaveform(sender.doubleValue)
         specView.calculateSpectrum(waveView.waveform)
         redraw()
     }
     
-    @IBAction func updatedPeakSlider(sender: NSSlider) {
+    @IBAction func updatedPeakSlider(_ sender: NSSlider) {
         specView.peakDelay = Int(sender.doubleValue)
         redraw()
     }
     
-    @IBAction func updatedBarSlider(sender: NSSlider) {
+    @IBAction func updatedBarSlider(_ sender: NSSlider) {
         specView.barDelay = Float(sender.doubleValue) / 1000.0
         redraw()
     }

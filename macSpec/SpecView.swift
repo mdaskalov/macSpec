@@ -20,10 +20,10 @@ class SpecView: NSView {
     let fftLength = vDSP_Length(log2(Float(kWaveformLength)))
     let fftSetup: FFTSetup
     
-    var fftResult = [Float](count: kWaveformLength, repeatedValue: 0.0)
-    var bar = [Float](count: kSpecViewLength, repeatedValue: 0)
-    var peak = [Float](count: kSpecViewLength, repeatedValue: 0)
-    var peakTime = [Int](count: kSpecViewLength, repeatedValue: 0)
+    var fftResult = [Float](repeating: 0.0, count: kWaveformLength)
+    var bar = [Float](repeating: 0, count: kSpecViewLength)
+    var peak = [Float](repeating: 0, count: kSpecViewLength)
+    var peakTime = [Int](repeating: 0, count: kSpecViewLength)
   
     /*
     var maxFrequency: Float {
@@ -44,7 +44,7 @@ class SpecView: NSView {
     */
     
     required init?(coder: NSCoder) {
-        fftSetup = vDSP_create_fftsetup(fftLength, FFTRadix(kFFTRadix2))
+        fftSetup = vDSP_create_fftsetup(fftLength, FFTRadix(kFFTRadix2))!
         
         super.init(coder: coder)
     }
@@ -53,13 +53,13 @@ class SpecView: NSView {
         vDSP_destroy_fftsetup(fftSetup)
     }
 
-    override func drawRect(dirtyRect: NSRect) {
-        super.drawRect(dirtyRect)
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
         
-        NSColor.blackColor().setFill()
+        NSColor.black.setFill()
         NSRectFill(dirtyRect)
-        NSColor.yellowColor().setFill()
-        NSColor.redColor().setStroke()
+        NSColor.yellow.setFill()
+        NSColor.red.setStroke()
         let path = NSBezierPath()
         
         let size = self.frame.size
@@ -83,8 +83,8 @@ class SpecView: NSView {
             }
 
             if (yPeak > y) {
-                path.moveToPoint(NSMakePoint(x, yPeak))
-                path.lineToPoint(NSMakePoint(x+barWidth, yPeak))
+                path.move(to: NSMakePoint(x, yPeak))
+                path.line(to: NSMakePoint(x+barWidth, yPeak))
             }
             NSRectFill(NSMakeRect(x, barGap, barWidth, y-barGap));
         }
@@ -92,13 +92,13 @@ class SpecView: NSView {
         path.stroke()
     }
 
-    func calculateSpectrum(waveform: [Float]) {
+    func calculateSpectrum(_ waveform: [Float]) {
         var real = [Float](waveform)
-        var imag = [Float](count: real.count, repeatedValue: 0.0)
+        var imag = [Float](repeating: 0.0, count: real.count)
         
         var splitComplex = DSPSplitComplex(realp: &real, imagp: &imag)
         
-        var fftResultRaw = [Float](count: real.count, repeatedValue: 0.0)
+        var fftResultRaw = [Float](repeating: 0.0, count: real.count)
         
         vDSP_fft_zip(fftSetup, &splitComplex, 1, fftLength, FFTDirection(FFT_FORWARD))
         
