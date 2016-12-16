@@ -1,0 +1,12 @@
+language: objective-c
+
+branches:
+ only:
+ - master
+
+xcode_project: macSpec.xcodeproj
+xcode_scheme: macSpec
+osx_image: xcode8.2
+
+script:
+- xcodebuild clean build -project macSpec.xcodeproj -scheme macSpec
