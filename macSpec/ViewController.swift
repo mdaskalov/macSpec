@@ -25,7 +25,7 @@ class ViewController: NSViewController {
         Timer.scheduledTimer(timeInterval: 1.0/60.0, target: self, selector: #selector(ViewController.redraw), userInfo: nil, repeats: true)
     }
 
-    func redraw() {
+    @objc func redraw() {
         if (running) {
             let buffer = AudioInputHandler.sharedInstance().ringBuffers.first as! RingBuffer
             buffer.copyTo(waveView.waveform)

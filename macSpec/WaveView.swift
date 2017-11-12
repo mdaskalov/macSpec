@@ -22,7 +22,7 @@ class WaveView: NSView {
         //CATransaction.begin()
         //CATransaction.setDisableActions(true)
         
-        NSRectFill(dirtyRect)
+        dirtyRect.fill()
         NSColor.white.set()
         let path = NSBezierPath()
         

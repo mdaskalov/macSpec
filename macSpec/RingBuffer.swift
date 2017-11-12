@@ -35,7 +35,7 @@ class RingBuffer: NSObject {
         }
     }
 
-    func pushSamples(_ source: UnsafeMutablePointer<Float32>, count: Int) {
+    @objc func pushSamples(_ source: UnsafeMutablePointer<Float32>, count: Int) {
         let rest = kBufferSize - offset;
         if (count <= rest) { // There is enough space, just copy past offset
             let src = UnsafeMutablePointer<Float>(source)

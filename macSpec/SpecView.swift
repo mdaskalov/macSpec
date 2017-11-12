@@ -57,7 +57,7 @@ class SpecView: NSView {
         super.draw(dirtyRect)
         
         NSColor.black.setFill()
-        NSRectFill(dirtyRect)
+        dirtyRect.fill()
         NSColor.yellow.setFill()
         NSColor.red.setStroke()
         let path = NSBezierPath()
@@ -86,7 +86,7 @@ class SpecView: NSView {
                 path.move(to: NSMakePoint(x, yPeak))
                 path.line(to: NSMakePoint(x+barWidth, yPeak))
             }
-            NSRectFill(NSMakeRect(x, barGap, barWidth, y-barGap));
+            NSMakeRect(x, barGap, barWidth, y-barGap).fill();
         }
         path.lineWidth = 1
         path.stroke()
