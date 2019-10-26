@@ -6,7 +6,7 @@ branches:
 
 xcode_project: macSpec.xcodeproj
 xcode_scheme: macSpec
-osx_image: xcode9.1
+osx_image: xcode11.1
 
 script:
 - xcodebuild clean build -project macSpec.xcodeproj -scheme macSpec
