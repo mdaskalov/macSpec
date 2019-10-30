@@ -69,7 +69,7 @@ class SpecView: NSView {
         let yAdjust = size.height - barGap
         
         for i in 0..<kSpecViewLength {
-            let barValue = fftResult[i] > 1.0 ? 1.0 : fftResult[i]
+            let barValue = fftResult[i].squareRoot()
             bar[i] = barValue >= bar[i] ? barValue : bar[i] - barDelay
 
             let x = barGap + CGFloat(i) * xAdjust
