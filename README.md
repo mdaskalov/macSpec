@@ -4,4 +4,4 @@
 # General
 Spectrum Analyzer for macOS using vDSP and AudioUnit
 
-![ScreenShot](https://raw.github.com/mdaskalov/macSpec/master/macSpec/resources/screenshot.png)
+![ScreenShot](https://raw.github.com/mdaskalov/macSpec/master/macSpec/resources/screenshot-video.gif)
