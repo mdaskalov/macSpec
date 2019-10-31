@@ -8,12 +8,13 @@
 
 import Foundation
 import CoreAudio
+import AudioUnit
 
 class AudioInput : NSObject {
     
-    fileprivate var au: AudioComponentInstance? = nil
+    fileprivate var auHAL: AudioComponentInstance? = nil
     
-    var inputBufferList: AudioBufferList
+    var inputBufferList: UnsafeMutableAudioBufferListPointer
     var ringBuffers: [RingBuffer]
     var sampleRate:Float = 0.0
     
@@ -22,6 +23,7 @@ class AudioInput : NSObject {
     fileprivate override init() {
         var osStatus = noErr
         
+        // Create an AUHAL instance.
         var description = AudioComponentDescription(
             componentType: kAudioUnitType_Output,
             componentSubType: kAudioUnitSubType_HALOutput,
@@ -32,20 +34,37 @@ class AudioInput : NSObject {
         let component = AudioComponentFindNext(nil, &description)
         assert(component != nil, "Find input device failed: \(osStatus)")
         
-        osStatus = AudioComponentInstanceNew(component!, &au)
+        osStatus = AudioComponentInstanceNew(component!, &auHAL)
         assert(osStatus == noErr, "Crating new instance failed: \(osStatus)")
         
-        let kInput:UInt32 = 1
-        let kOutput:UInt32 = 0
-        var enable:UInt32 = 1
-        var disable:UInt32 = 0
+        // Enable the input bus, and disable the output bus.
+        let kInputElement:UInt32 = 1
+        let kOutputElement:UInt32 = 0
+        var kInputData:UInt32 = 1
+        var kOutputData:UInt32 = 0
+        let ioDataSize:UInt32 = UInt32(MemoryLayout<UInt32>.size)
         
-        osStatus = AudioUnitSetProperty(au!, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, kInput, &enable, UInt32(MemoryLayout<UInt32>.size))
+        osStatus = AudioUnitSetProperty(
+            auHAL!,
+            kAudioOutputUnitProperty_EnableIO,
+            kAudioUnitScope_Input,
+            kInputElement,
+            &kInputData,
+            ioDataSize
+        )
         assert(osStatus == noErr, "Enable input failed: \(osStatus)")
         
-        osStatus = AudioUnitSetProperty(au!, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, kOutput, &disable, UInt32(MemoryLayout<UInt32>.size))
+        osStatus = AudioUnitSetProperty(
+            auHAL!,
+            kAudioOutputUnitProperty_EnableIO,
+            kAudioUnitScope_Output,
+            kOutputElement,
+            &kOutputData,
+            ioDataSize
+        )
         assert(osStatus == noErr, "Enable output failed: \(osStatus)")
         
+        // Set the unit to the default input device.
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -54,72 +73,83 @@ class AudioInput : NSObject {
         
         var inputDevice = AudioDeviceID(0)
         var inputDeviceSize:UInt32 = UInt32(MemoryLayout<AudioDeviceID>.size)
-
         
-        osStatus = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &inputDeviceSize, &inputDevice)
+        osStatus = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            0,
+            nil,
+            &inputDeviceSize,
+            &inputDevice
+        )
         assert(osStatus == noErr, "Get default device failed: \(osStatus)")
         
         osStatus = AudioUnitSetProperty(
-            au!,
+            auHAL!,
             AudioUnitPropertyID(kAudioOutputUnitProperty_CurrentDevice),
             AudioUnitScope(kAudioUnitScope_Global),
             0,
             &inputDevice,
-            UInt32(MemoryLayout<AudioDeviceID>.size)
+            inputDeviceSize
         )
         assert(osStatus == noErr, "Set the unit to the default input device failed: \(osStatus)")
         
-        var inputFormat = AudioStreamBasicDescription()
-        var inputFormatSize:UInt32 = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
-        var outputFormat = AudioStreamBasicDescription()
-        
+        // Adopt the stream format.
+        var deviceFormat = AudioStreamBasicDescription()
+        var desiredFormat = AudioStreamBasicDescription()
+        var ioFormatSize:UInt32 = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+
         osStatus = AudioUnitGetProperty(
-            au!,
+            auHAL!,
             AudioUnitPropertyID(kAudioUnitProperty_StreamFormat),
             AudioUnitScope(kAudioUnitScope_Input),
-            kInput,
-            &inputFormat,
-            &inputFormatSize
+            kInputElement,
+            &deviceFormat,
+            &ioFormatSize
         )
-        assert(osStatus == noErr, "Get input device format failed: \(osStatus)")
+        assert(osStatus == noErr, "Get input format failed: \(osStatus)")
         
         osStatus = AudioUnitGetProperty(
-            au!,
+            auHAL!,
             AudioUnitPropertyID(kAudioUnitProperty_StreamFormat),
             AudioUnitScope(kAudioUnitScope_Output),
-            kOutput,
-            &outputFormat,
-            &inputFormatSize
+            kInputElement,
+            &desiredFormat,
+            &ioFormatSize
         )
         assert(osStatus == noErr, "Get output format failed: \(osStatus)")
         
-        outputFormat.mSampleRate = inputFormat.mSampleRate
-        outputFormat.mChannelsPerFrame = inputFormat.mChannelsPerFrame
+        // Same sample rate, same number of channels.
+        desiredFormat.mSampleRate = deviceFormat.mSampleRate
+        desiredFormat.mChannelsPerFrame = deviceFormat.mChannelsPerFrame
         
-        outputFormat.mFormatID = kAudioFormatLinearPCM
-        outputFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagsNativeEndian | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved
-        outputFormat.mFramesPerPacket = 1
-        outputFormat.mBytesPerFrame = UInt32(MemoryLayout<Float>.size)
-        outputFormat.mBytesPerPacket = UInt32(MemoryLayout<Float>.size)
-        outputFormat.mBitsPerChannel = 8 * UInt32(MemoryLayout<Float>.size)
+        // Canonical audio format.
+        desiredFormat.mFormatID = kAudioFormatLinearPCM
+        desiredFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagsNativeEndian | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved
+        desiredFormat.mFramesPerPacket = 1
+        desiredFormat.mBytesPerFrame = UInt32(MemoryLayout<Float32>.size)
+        desiredFormat.mBytesPerPacket = UInt32(MemoryLayout<Float32>.size)
+        desiredFormat.mBitsPerChannel = 8 * UInt32(MemoryLayout<Float32>.size)
         
         osStatus = AudioUnitSetProperty(
-            au!,
+            auHAL!,
             AudioUnitPropertyID(kAudioUnitProperty_StreamFormat),
             AudioUnitScope(kAudioUnitScope_Output),
-            kInput,
-            &outputFormat,
+            kInputElement,
+            &desiredFormat,
             UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
         )
         assert(osStatus == noErr, "Set output format failed: \(osStatus)")
         
-        sampleRate = Float(outputFormat.mSampleRate)
+        // Store the format information.
+        sampleRate = Float(desiredFormat.mSampleRate)
         
+        // Get the buffer frame size.
         var bufferSizeFrames: UInt32 = 0
         var bufferSizeFramesSize = UInt32(MemoryLayout<UInt32>.size)
         
         osStatus = AudioUnitGetProperty(
-            au!,
+            auHAL!,
             AudioUnitPropertyID(kAudioDevicePropertyBufferFrameSize),
             AudioUnitScope(kAudioUnitScope_Global),
             0,
@@ -128,35 +158,25 @@ class AudioInput : NSObject {
         )
         assert(osStatus == noErr, "Get buffer frame size failed: \(osStatus)")
         
-        let bufferSizeBytes:UInt32 = bufferSizeFrames * UInt32(MemoryLayout<Float>.size)
-        let channels:UInt32 = inputFormat.mChannelsPerFrame
+        // Allocate the input buffer.
+        let bufferSizeBytes = bufferSizeFrames * UInt32(MemoryLayout<Float32>.size)
+        let channels = deviceFormat.mChannelsPerFrame
         
-        var buffer = [Float](repeating: 0, count: Int(bufferSizeBytes))
-        inputBufferList = AudioBufferList(
-            mNumberBuffers: 1,
-            mBuffers: AudioBuffer(
-                mNumberChannels: UInt32(channels),
-                mDataByteSize: UInt32(buffer.count),
-                mData: &buffer
-            )  
-        )
-        
-        /*
-         _inputBufferList = (AudioBufferList *)malloc(sizeof(AudioBufferList) + sizeof(AudioBuffer) * channels);
-         _inputBufferList->mNumberBuffers = channels;
-         
-         for (UInt32 i = 0; i < channels; i++) {
-         AudioBuffer *buffer = &_inputBufferList->mBuffers[i];
-         buffer->mNumberChannels = 1;
-         buffer->mDataByteSize = bufferSizeBytes;
-         buffer->mData = malloc(bufferSizeBytes);
-         }
-         */
-        
+        inputBufferList = AudioBufferList.allocate(maximumBuffers: Int(channels))
+        for i in 0..<Int(channels) {
+            inputBufferList[i] = AudioBuffer(
+                mNumberChannels: channels,
+                mDataByteSize: UInt32(bufferSizeBytes),
+                mData: malloc(Int(bufferSizeBytes))
+            )
+        }
+
+        // Initialize the ring buffers.
         ringBuffers = [RingBuffer](repeating: RingBuffer(), count: Int(channels))
         
         super.init()
-
+        
+        // Set up the input callback.
         var callbackStruct = AURenderCallbackStruct(
             inputProc: { (
                 inRefCon: UnsafeMutableRawPointer,
@@ -166,36 +186,20 @@ class AudioInput : NSObject {
                 inNumberFrame: UInt32,
                 ioData: UnsafeMutablePointer<AudioBufferList>?) -> OSStatus in
                 
-                let audioInput = Unmanaged<AudioInput>.fromOpaque(inRefCon).takeUnretainedValue()
-
-                var err = noErr
-                if (ioData != nil) {
-                    err = AudioUnitRender(
-                        audioInput.au!,
-                        ioActionFlags,
-                        inTimeStamp,
-                        inBusNumber,
-                        inNumberFrame,
-                        ioData!
-                    )
-                    
-                    if err == noErr {
-                        var i = 0
-                        for buffer in UnsafeMutableAudioBufferListPointer(ioData)! {
-                            let buf:UnsafeMutablePointer<Float> = UnsafeMutableRawPointer(buffer.mData!).assumingMemoryBound(to: Float.self)
-                            audioInput.ringBuffers[i].pushSamples(buf, count: Int(buffer.mDataByteSize) / MemoryLayout<Float>.size)
-                            i += 1
-                        }
-                    }
-                    
-                }
-                return err
+                let owner = Unmanaged<AudioInput>.fromOpaque(inRefCon).takeUnretainedValue()
+                owner.inputCallback(
+                    ioActionFlags: ioActionFlags,
+                    inTimeStamp: inTimeStamp,
+                    inBusNumber: inBusNumber,
+                    inNumberFrame: inNumberFrame
+                )
+                return noErr
             },
             inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
         )
  
         osStatus = AudioUnitSetProperty(
-            au!,
+            auHAL!,
             AudioUnitPropertyID(kAudioOutputUnitProperty_SetInputCallback),
             AudioUnitScope(kAudioUnitScope_Global),
             0,
@@ -204,90 +208,49 @@ class AudioInput : NSObject {
         )
         assert(osStatus == noErr, "Set input callback failed: \(osStatus)")
 
-        osStatus = AudioUnitInitialize(au!);
+        // Complete the initialization.
+        osStatus = AudioUnitInitialize(auHAL!);
         assert(osStatus == noErr, "Audio unit inizialisation failed: \(osStatus)")
-
     }
     
-    
     deinit {
-        AudioComponentInstanceDispose(au!)
+        AudioComponentInstanceDispose(auHAL!)
+        for buffer in inputBufferList {
+            free(buffer.mData)
+        }
+        free(&inputBufferList)
+    }
+    
+    func inputCallback(
+        ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+        inTimeStamp: UnsafePointer<AudioTimeStamp>,
+        inBusNumber: UInt32,
+        inNumberFrame: UInt32) {
+
+        let err = AudioUnitRender(
+            auHAL!,
+            ioActionFlags,
+            inTimeStamp,
+            inBusNumber,
+            inNumberFrame,
+            inputBufferList.unsafeMutablePointer
+        )
+        if err == noErr {
+            for (i,buffer) in inputBufferList.enumerated() {
+                if let buf = buffer.mData?.assumingMemoryBound(to: Float32.self) {
+                    ringBuffers[i].pushSamples(buf, count: Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size)
+                }
+            }
+        }
     }
     
     func start() {
-        assert(AudioOutputUnitStart(au!) == noErr, "Failed to start the audio unit.")
+        assert(AudioOutputUnitStart(auHAL!) == noErr, "Failed to start the audio unit.")
         
     }
     
     func stop() {
-        assert(AudioOutputUnitStop(au!) == noErr, "Failed to stop the audio unit.")
+        assert(AudioOutputUnitStop(auHAL!) == noErr, "Failed to stop the audio unit.")
     }
-    
-    /*
-     init() {
-     
-     var status: OSStatus
-     
-     do {
-     try AVAudioSession.sharedInstance().setPreferredIOBufferDuration(preferredIOBufferDuration)
-     } catch let error as NSError {
-     print(error)
-     }
-     
-     
-     var desc: AudioComponentDescription = AudioComponentDescription()
-     desc.componentType = kAudioUnitType_Output
-     desc.componentSubType = kAudioUnitSubType_VoiceProcessingIO
-     desc.componentFlags = 0
-     desc.componentFlagsMask = 0
-     desc.componentManufacturer = kAudioUnitManufacturer_Apple
-     
-     let inputComponent: AudioComponent = AudioComponentFindNext(nil, &desc)
-     
-     status = AudioComponentInstanceNew(inputComponent, &audioUnit)
-     checkStatus(status)
-     
-     var flag = UInt32(1)
-     status = AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, kInputBus, &flag, UInt32(sizeof(UInt32)))
-     checkStatus(status)
-     
-     status = AudioUnitSetProperty(audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, kOutputBus, &flag, UInt32(sizeof(UInt32)))
-     checkStatus(status)
-     
-     var audioFormat: AudioStreamBasicDescription! = AudioStreamBasicDescription()
-     audioFormat.mSampleRate = 8000
-     audioFormat.mFormatID = kAudioFormatLinearPCM
-     audioFormat.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked
-     audioFormat.mFramesPerPacket = 1
-     audioFormat.mChannelsPerFrame = 1
-     audioFormat.mBitsPerChannel = 16
-     audioFormat.mBytesPerPacket = 2
-     audioFormat.mBytesPerFrame = 2
-     
-     status = AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, kInputBus, &audioFormat, UInt32(sizeof(UInt32)))
-     checkStatus(status)
-     
-     
-     try! AVAudioSession.sharedInstance().setCategory(AVAudioSessionCategoryPlayAndRecord)
-     status = AudioUnitSetProperty(audioUnit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, kOutputBus, &audioFormat, UInt32(sizeof(UInt32)))
-     checkStatus(status)
-     
-     
-     // Set input/recording callback
-     var inputCallbackStruct = AURenderCallbackStruct(inputProc: recordingCallback, inputProcRefCon: UnsafeMutablePointer(unsafeAddressOf(self)))
-     
-     AudioUnitSetProperty(audioUnit, AudioUnitPropertyID(kAudioOutputUnitProperty_SetInputCallback), AudioUnitScope(kAudioUnitScope_Global), 1, &inputCallbackStruct, UInt32(sizeof(AURenderCallbackStruct)))
-     
-     
-     // Set output/renderar/playback callback
-     var renderCallbackStruct = AURenderCallbackStruct(inputProc: playbackCallback, inputProcRefCon: UnsafeMutablePointer(unsafeAddressOf(self)))
-     AudioUnitSetProperty(audioUnit, AudioUnitPropertyID(kAudioUnitProperty_SetRenderCallback), AudioUnitScope(kAudioUnitScope_Global), 0, &renderCallbackStruct, UInt32(sizeof(AURenderCallbackStruct)))
-     
-     
-     flag = 0
-     status = AudioUnitSetProperty(audioUnit, kAudioUnitProperty_ShouldAllocateBuffer, kAudioUnitScope_Output, kInputBus, &flag, UInt32(sizeof(UInt32)))
-     }
-     */
-    
-    
+
 }
