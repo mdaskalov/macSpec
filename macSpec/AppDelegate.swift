@@ -13,13 +13,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
  
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         // Insert code here to initialize your application
-        AudioInputHandler.sharedInstance().start()
         AudioInput.sharedInstance.start()
     }
 
     func applicationWillTerminate(_ aNotification: Notification) {
         // Insert code here to tear down your application
-        AudioInputHandler.sharedInstance().stop()
         AudioInput.sharedInstance.stop()
     }
 
