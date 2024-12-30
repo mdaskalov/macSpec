@@ -113,11 +113,12 @@ class SpecData: ObservableObject {
     
     func calculateSpectrum() {
         let samplesCount = samples.count
+        var real = [Float](samples)
         var imag = [Float](repeating: 0.0, count: samplesCount)
         var resultRaw = [Float](repeating: 0.0, count: samplesCount)
         var result = [Float](repeating: 0.0, count: samplesCount)
 
-        samples.withUnsafeMutableBufferPointer { realPtr in
+        real.withUnsafeMutableBufferPointer { realPtr in
             imag.withUnsafeMutableBufferPointer { imagPtr in
                 if let realBase = realPtr.baseAddress, let imagBase = imagPtr.baseAddress {
                     var splitComplex = DSPSplitComplex(realp: realBase, imagp: imagBase)
