@@ -7,132 +7,235 @@
 //
 
 import Foundation
-import Foundation
+import AudioToolbox
 import Accelerate
-import Combine
 
 enum Source: String, CaseIterable, Identifiable {
     case audio, test, generated
     var id: Self { self }
 }
 
-class SpecData: ObservableObject {
-    @Published var source: Source = .audio {
-        didSet {
-            if source == .audio {
-                stopTimer()
-            }
-            else {
-                startTimer()
-            }
+func aqInputCallback(
+    inUserData: UnsafeMutableRawPointer?,
+    inAQ: AudioQueueRef,
+    inBuffer: AudioQueueBufferRef,
+    inStartTime: UnsafePointer<AudioTimeStamp>,
+    inNumPackets: UInt32,
+    inPacketDesc: UnsafePointer<AudioStreamPacketDescription>?
+) {
+    guard let inUserData = inUserData else { return }
+    let specData = Unmanaged<SpecData>.fromOpaque(inUserData).takeUnretainedValue()
+    if let userData = inBuffer.pointee.mUserData {
+        let indexPointer = userData.assumingMemoryBound(to: Int.self)
+        let bufIndex = indexPointer.pointee
+        DispatchQueue.main.async {
+            specData.update(bufIndex: bufIndex)
         }
     }
-    @Published var samples: [Float]
-    @Published var bars: [Float]
-    @Published var peaks: [Float]
+    AudioQueueEnqueueBuffer(inAQ, inBuffer, 0, nil)
+}
 
-    let kGain: Float = 1.0
+class SpecData: ObservableObject {
+    let maxTestPhase: Double = 100.0
+    let samplesCount: Int = 512
+    let barsCount: Int
 
-    private let kWaveformLength: Int
-    private let kSpecViewLength: Int    
+    var gain: Float = 1.0
+    var barDelay: CGFloat = 0.05;
+    var peakDelay = 50;
+    var testPhase: Double = 0.0 {
+        didSet {
+            generateWaveform()
+        }
+    }
     
-    private var barDelay:Float = 0.05;
-    private var peakDelay = 50;
+    @Published var source: Source = .audio {
+        didSet {
+            testPhase = 0.0
+        }
+    }
+    @Published var samples: [CGFloat]
+    @Published var bars: [CGFloat]
+    @Published var peaks: [CGFloat]
     
     private let fftLength: vDSP_Length
     private let fftSetup: FFTSetup?
-    
     private var fftResult: [Float]
     
     private var peakTime: [Int]
        
-    private var timer: AnyCancellable?
+    private var sampling: Bool = false
+    private var audioQueue: AudioQueueRef?
+    private var buffers = [AudioQueueBufferRef?](repeating: nil, count: 4)
+    private var audioFormat = AudioStreamBasicDescription()
     
     init() {
-        kWaveformLength = 512
-        kSpecViewLength = kWaveformLength / 4
+        barsCount = samplesCount / 4
 
-        samples = [Float](repeating: 0.0, count: kWaveformLength)
-        
-        barDelay = 0.05
-        peakDelay = 50
-        
-        fftLength = vDSP_Length(log2(Float(kWaveformLength)))
+        samples = [CGFloat](repeating: 0.0, count: samplesCount)
+        bars = [CGFloat](repeating: 0, count: barsCount)
+        peaks = [CGFloat](repeating: 0, count: barsCount)
+
+        fftLength = vDSP_Length(log2(Float(samplesCount)))
         fftSetup = vDSP_create_fftsetup(fftLength, FFTRadix(kFFTRadix2))
-        fftResult = [Float](repeating: 0.0, count: kSpecViewLength)
+        fftResult = [Float](repeating: 0.0, count: samplesCount)
         
-        bars = [Float](repeating: 0, count: kSpecViewLength)
-        peaks = [Float](repeating: 0, count: kSpecViewLength)
-        peakTime = [Int](repeating: 0, count: kSpecViewLength)
+        peakTime = [Int](repeating: 0, count: barsCount)
     }
     
     deinit {
-        if (fftSetup != nil) {
-            vDSP_destroy_fftsetup(fftSetup)
+        stopSampling()
+        if let fft = fftSetup {
+            vDSP_destroy_fftsetup(fft)
         }
     }
     
-    func startTimer() {
-        timer = Timer.publish(every: 0.005, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                self?.update()
-            }
-    }
-    
-    func stopTimer() {
-        timer?.cancel()
-        timer = nil
-    }
-    
-    func adjustValue(current: Float, new: Float, delay: Float) -> Float {
-        if new > current || current - delay < new {
-            return new
-        }
-        return current - delay
-    }
+    func startSampling() {
+        print("Started sampling")
+        audioFormat.mSampleRate = 44100.0
+        audioFormat.mChannelsPerFrame = 1
+        
+        let bytesPerSample = UInt32(MemoryLayout<Float32>.size)
 
-    func update() {
-        for i in 0..<kSpecViewLength {
-            bars[i] = adjustValue(current: bars[i], new: fftResult[i], delay: barDelay)
-            peakTime[i] += 1
-            if (peakTime[i] > peakDelay) || (bars[i] > peaks[i]) {
-                peakTime[i] = 0
-                peaks[i] = bars[i]
+        // Canonical audio format.
+        audioFormat.mFormatID = kAudioFormatLinearPCM
+        audioFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagsNativeEndian | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved
+        audioFormat.mFramesPerPacket = 1
+        audioFormat.mBytesPerFrame = bytesPerSample
+        audioFormat.mBytesPerPacket = bytesPerSample
+        audioFormat.mBitsPerChannel = 8 * bytesPerSample
+
+        // Create the AudioQueue and pass self as user data
+        var osStatus = AudioQueueNewInput(
+            &audioFormat,
+            aqInputCallback,
+            Unmanaged.passUnretained(self).toOpaque(),
+            nil,
+            nil,
+            0,
+            &audioQueue
+        )
+        guard osStatus == noErr else {
+            print("AudioQueueNewInput failed: \(osStatus)")
+            return
+        }
+        if let aq = audioQueue {
+            // Allocate and enqueue buffers
+            let bufferByteSize: UInt32 = UInt32(samplesCount) * bytesPerSample
+            for i in 0..<buffers.count {
+                osStatus = AudioQueueAllocateBuffer(aq, bufferByteSize, &buffers[i])
+                guard osStatus == noErr else {
+                    print("AudioQueueAllocateBuffer failed: \(osStatus)")
+                    return
+                }
+                if let buffer = buffers[i] {
+                    osStatus = AudioQueueEnqueueBuffer(aq, buffer, 0, nil)
+                    guard osStatus == noErr else {
+                        print("AudioQueueEnqueueBuffer failed: \(osStatus)")
+                        return
+                    }
+                    let indexPointer = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+                    indexPointer.pointee = i
+                    buffer.pointee.mUserData = UnsafeMutableRawPointer(indexPointer)
+                }
+            }
+            osStatus = AudioQueueStart(aq, nil)
+            guard osStatus == noErr else {
+                print("AudioQueueStart failed: \(osStatus)")
+                return
+            }
+            sampling = true
+        }
+    }
+    
+    func stopSampling()  {
+        if let aq = audioQueue {
+            var osStatus = AudioQueueStop(aq, false)
+            guard osStatus == noErr else {
+                print("AudioQueueStop failed: \(osStatus)")
+                return
+            }
+            osStatus = AudioQueueDispose(aq, false)
+            guard osStatus == noErr else {
+                print("AudioQueueDispose failed: \(osStatus)")
+                return
+            }
+            audioQueue = nil
+            sampling = false
+        }
+        for buffer in buffers {
+            if let buf = buffer, let userData = buf.pointee.mUserData {
+                let indexPointer = userData.assumingMemoryBound(to: Int.self)
+                indexPointer.deallocate() // Deallocate the memory
             }
         }
+        buffers.removeAll()
     }
     
-    func generateWaveform(phase: Double) {
-        for i in 0..<samples.count {
-            samples[i] = 1.0 * sin(Float(Double(i)*phase)/64.0)
+    func adjustValue(current: CGFloat, new: Float) -> CGFloat {
+        let value = (CGFloat(new) * 0.07 / CGFloat(samplesCount)).squareRoot()
+        if value > current || current - barDelay < value {
+            return value
         }
-        calculateSpectrum()
-        update()
+        return current - barDelay
     }
     
-    func calculateSpectrum() {
-        let samplesCount = samples.count
-        var real = [Float](samples)
+    func update(bufIndex: Int) {
+        guard bufIndex < buffers.count else { return }
+
+        var real: [Float]
+        
+        if source != .audio {
+            real = [Float](repeating: 0.0, count: samplesCount)
+            for i in 0..<samples.count {
+                real[i] = Float(samples[i])
+            }
+        }
+        else if let inBuffer = buffers[bufIndex] {
+            let audioData = inBuffer.pointee.mAudioData
+            let bufSamples = Int(inBuffer.pointee.mAudioDataByteSize) / MemoryLayout<Float>.size
+            let samplesCount = min(samplesCount, bufSamples)
+            real = audioData.withMemoryRebound(to: Float.self, capacity: samplesCount) { floatPointer in
+                Array(UnsafeBufferPointer(start: floatPointer, count: samplesCount))
+            }
+            for i in 0..<samples.count {
+                samples[i] = CGFloat(real[i])
+            }
+        }
+        else {
+            real = [Float](repeating: 0.0, count: samplesCount)
+        }
+        
         var imag = [Float](repeating: 0.0, count: samplesCount)
-        var resultRaw = [Float](repeating: 0.0, count: samplesCount)
-        var result = [Float](repeating: 0.0, count: samplesCount)
-
         real.withUnsafeMutableBufferPointer { realPtr in
             imag.withUnsafeMutableBufferPointer { imagPtr in
                 if let realBase = realPtr.baseAddress, let imagBase = imagPtr.baseAddress {
                     var splitComplex = DSPSplitComplex(realp: realBase, imagp: imagBase)
                     if let fft = fftSetup {
                         vDSP_fft_zip(fft, &splitComplex, 1, fftLength, FFTDirection(FFT_FORWARD))
-                        vDSP_zvmags(&splitComplex, 1, &resultRaw, 1, vDSP_Length(samplesCount))
-                        vDSP_vsmul(&resultRaw, 1, [0.07 / Float(samplesCount)], &result, 1, vDSP_Length(samplesCount))
+                        vDSP_zvmags(&splitComplex, 1, &fftResult, 1, vDSP_Length(samplesCount))
                     }
                 }
             }
         }
-        for i in 0..<kSpecViewLength {
-            fftResult[i] = result[i].squareRoot()
+
+        for i in 0..<self.barsCount {
+            bars[i] = adjustValue(current: bars[i], new: fftResult[i])
+            peakTime[i] += 1
+            if peakTime[i] > peakDelay || bars[i] > peaks[i] {
+                peakTime[i] = 0
+                peaks[i] = bars[i]
+            }
+        }
+        if self.source == .generated {
+            testPhase = testPhase > maxTestPhase ? 0.0 : testPhase + 0.01
         }
     }
     
+    func generateWaveform() {
+        for i in 0..<samples.count {
+            samples[i] = 1.0 * sin(CGFloat(Double(i)*testPhase)/64.0)
+        }
+    }
+        
 }
