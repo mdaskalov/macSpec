@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct WaveView: View {
-    @StateObject var data: SpecData
+    @ObservedObject var data: SpecData
     
     var body: some View {
         Canvas { context, size in
@@ -26,6 +26,7 @@ struct WaveView: View {
             }
             context.stroke(path, with: .color(.white), lineWidth: 1)
         }
+        .padding(1)
         .background(.black)
         .border(Color(.darkGray))
     }

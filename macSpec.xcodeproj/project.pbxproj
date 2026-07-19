@@ -25,7 +25,6 @@
 		279165D81E0366CA008EECF2 /* resources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = resources; path = macSpec/resources; sourceTree = "<group>"; };
 		C440AD922D1824B4001E6038 /* SpecData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecData.swift; sourceTree = "<group>"; };
 		C47F62CA2D26F2A3009B4491 /* AppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppView.swift; sourceTree = "<group>"; };
-		C4ABADDB2D22CFC9005C0063 /* Legacy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Legacy.swift; sourceTree = "<group>"; };
 		C4D38B722D16EB0F00A311A6 /* macSpecApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = macSpecApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -67,7 +66,6 @@
 				266B81CE1D47A7FD000261CE /* Assets.xcassets */,
 				C4D38B722D16EB0F00A311A6 /* macSpecApp.swift */,
 				266B81D31D47A7FD000261CE /* Info.plist */,
-				C4ABADDB2D22CFC9005C0063 /* Legacy.swift */,
 			);
 			path = macSpec;
 			sourceTree = "<group>";

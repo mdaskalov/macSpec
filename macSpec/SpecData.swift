@@ -37,15 +37,19 @@ func aqInputCallback(
 
 class SpecData: ObservableObject {
     let maxTestPhase: Double = 100.0
-    let samplesCount: Int = 512
+    let samplesCount: Int = 400
     let barsCount: Int
 
     var gain: Float = 1.0
     var barDelay: CGFloat = 0.05;
-    var peakDelay = 50;
+    var peakDelay = 50
     var testPhase: Double = 0.0 {
         didSet {
-            generateWaveform()
+            let phase = testPhase
+            let count = samplesCount
+            DispatchQueue.main.async {
+                self.samples = (0..<count).map { sin(CGFloat(Double($0) * phase) / 64.0) }
+            }
         }
     }
     
@@ -65,6 +69,7 @@ class SpecData: ObservableObject {
     private var peakTime: [Int]
        
     private var sampling: Bool = false
+    private var inUpdate: Bool = false
     private var audioQueue: AudioQueueRef?
     private var buffers = [AudioQueueBufferRef?](repeating: nil, count: 4)
     private var audioFormat = AudioStreamBasicDescription()
@@ -92,7 +97,7 @@ class SpecData: ObservableObject {
     
     func startSampling() {
         print("Started sampling")
-        audioFormat.mSampleRate = 44100.0
+        audioFormat.mSampleRate = 22050.0
         audioFormat.mChannelsPerFrame = 1
         
         let bytesPerSample = UInt32(MemoryLayout<Float32>.size)
@@ -182,6 +187,11 @@ class SpecData: ObservableObject {
     
     func update(bufIndex: Int) {
         guard bufIndex < buffers.count else { return }
+        guard !inUpdate else {
+            print("overrun")
+            return
+        }
+        inUpdate = true
 
         var real: [Float]
         
@@ -194,13 +204,14 @@ class SpecData: ObservableObject {
         else if let inBuffer = buffers[bufIndex] {
             let audioData = inBuffer.pointee.mAudioData
             let bufSamples = Int(inBuffer.pointee.mAudioDataByteSize) / MemoryLayout<Float>.size
-            let samplesCount = min(samplesCount, bufSamples)
-            real = audioData.withMemoryRebound(to: Float.self, capacity: samplesCount) { floatPointer in
-                Array(UnsafeBufferPointer(start: floatPointer, count: samplesCount))
+            let copyCount = min(samplesCount, bufSamples)
+            real = [Float](repeating: 0.0, count: samplesCount)
+            audioData.withMemoryRebound(to: Float.self, capacity: copyCount) { floatPointer in
+                for i in 0..<copyCount {
+                    real[i] = floatPointer[i]
+                }
             }
-            for i in 0..<samples.count {
-                samples[i] = CGFloat(real[i])
-            }
+            samples = real.map { CGFloat($0) }
         }
         else {
             real = [Float](repeating: 0.0, count: samplesCount)
@@ -219,23 +230,22 @@ class SpecData: ObservableObject {
             }
         }
 
+        var newBars = bars
+        var newPeaks = peaks
         for i in 0..<self.barsCount {
-            bars[i] = adjustValue(current: bars[i], new: fftResult[i])
+            newBars[i] = adjustValue(current: newBars[i], new: fftResult[i])
             peakTime[i] += 1
-            if peakTime[i] > peakDelay || bars[i] > peaks[i] {
+            if peakTime[i] > peakDelay || newBars[i] > newPeaks[i] {
                 peakTime[i] = 0
-                peaks[i] = bars[i]
+                newPeaks[i] = newBars[i]
             }
         }
+        bars = newBars
+        peaks = newPeaks
         if self.source == .generated {
             testPhase = testPhase > maxTestPhase ? 0.0 : testPhase + 0.01
         }
+        inUpdate = false
     }
-    
-    func generateWaveform() {
-        for i in 0..<samples.count {
-            samples[i] = 1.0 * sin(CGFloat(Double(i)*testPhase)/64.0)
-        }
-    }
-        
+            
 }

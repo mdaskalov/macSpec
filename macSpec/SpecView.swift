@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct SpecView: View {
-    @StateObject var data: SpecData
+    @ObservedObject var data: SpecData
     
     var body: some View {
         Canvas { context, size in
