@@ -7,32 +7,14 @@
 //
 
 import Foundation
+import AppKit
+import CoreAudio
 import AudioToolbox
 import Accelerate
 
 enum Source: String, CaseIterable, Identifiable {
     case audio, test, generated
     var id: Self { self }
-}
-
-func aqInputCallback(
-    inUserData: UnsafeMutableRawPointer?,
-    inAQ: AudioQueueRef,
-    inBuffer: AudioQueueBufferRef,
-    inStartTime: UnsafePointer<AudioTimeStamp>,
-    inNumPackets: UInt32,
-    inPacketDesc: UnsafePointer<AudioStreamPacketDescription>?
-) {
-    guard let inUserData = inUserData else { return }
-    let specData = Unmanaged<SpecData>.fromOpaque(inUserData).takeUnretainedValue()
-    if let userData = inBuffer.pointee.mUserData {
-        let indexPointer = userData.assumingMemoryBound(to: Int.self)
-        let bufIndex = indexPointer.pointee
-        DispatchQueue.main.async {
-            specData.update(bufIndex: bufIndex)
-        }
-    }
-    AudioQueueEnqueueBuffer(inAQ, inBuffer, 0, nil)
 }
 
 class SpecData: ObservableObject {
@@ -52,28 +34,34 @@ class SpecData: ObservableObject {
             }
         }
     }
-    
+
     @Published var source: Source = .audio {
         didSet {
             testPhase = 0.0
+            updateDisplayTimer()
         }
     }
     @Published var samples: [CGFloat]
     @Published var bars: [CGFloat]
     @Published var peaks: [CGFloat]
-    
+
     private let fftLength: vDSP_Length
     private let fftSetup: FFTSetup?
     private var fftResult: [Float]
-    
+
     private var peakTime: [Int]
-       
+
     private var sampling: Bool = false
     private var inUpdate: Bool = false
-    private var audioQueue: AudioQueueRef?
-    private var buffers = [AudioQueueBufferRef?](repeating: nil, count: 4)
-    private var audioFormat = AudioStreamBasicDescription()
-    
+    private var displayTimer: Timer?
+
+    // System-audio tap: captures the mix going to the default output device
+    private var tapID = AudioObjectID(kAudioObjectUnknown)
+    private var aggregateID = AudioObjectID(kAudioObjectUnknown)
+    private var ioProcID: AudioDeviceIOProcID?
+    private let tapQueue = DispatchQueue(label: "com.innersoft.macSpec.tap")
+    private var pending = [Float]()
+
     init() {
         barsCount = samplesCount / 4
 
@@ -84,99 +72,152 @@ class SpecData: ObservableObject {
         fftLength = vDSP_Length(log2(Float(samplesCount)))
         fftSetup = vDSP_create_fftsetup(fftLength, FFTRadix(kFFTRadix2))
         fftResult = [Float](repeating: 0.0, count: samplesCount)
-        
+
         peakTime = [Int](repeating: 0, count: barsCount)
     }
-    
+
     deinit {
+        displayTimer?.invalidate()
         stopSampling()
         if let fft = fftSetup {
             vDSP_destroy_fftsetup(fft)
         }
     }
-    
+
     func startSampling() {
-        print("Started sampling")
-        audioFormat.mSampleRate = 22050.0
-        audioFormat.mChannelsPerFrame = 1
-        
-        let bytesPerSample = UInt32(MemoryLayout<Float32>.size)
+        let tapDescription: CATapDescription
+        if let musicProcess = findAudioProcess(bundleID: "com.apple.Music") {
+            print("Tapping Apple Music")
+            tapDescription = CATapDescription(monoMixdownOfProcesses: [musicProcess])
+        } else {
+            print("Music not running, tapping system audio")
+            tapDescription = CATapDescription(monoGlobalTapButExcludeProcesses: [])
+        }
+        tapDescription.name = "macSpec system audio tap"
+        tapDescription.isPrivate = true
+        tapDescription.muteBehavior = .unmuted
 
-        // Canonical audio format.
-        audioFormat.mFormatID = kAudioFormatLinearPCM
-        audioFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagsNativeEndian | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved
-        audioFormat.mFramesPerPacket = 1
-        audioFormat.mBytesPerFrame = bytesPerSample
-        audioFormat.mBytesPerPacket = bytesPerSample
-        audioFormat.mBitsPerChannel = 8 * bytesPerSample
-
-        // Create the AudioQueue and pass self as user data
-        var osStatus = AudioQueueNewInput(
-            &audioFormat,
-            aqInputCallback,
-            Unmanaged.passUnretained(self).toOpaque(),
-            nil,
-            nil,
-            0,
-            &audioQueue
-        )
+        var osStatus = AudioHardwareCreateProcessTap(tapDescription, &tapID)
         guard osStatus == noErr else {
-            print("AudioQueueNewInput failed: \(osStatus)")
+            print("AudioHardwareCreateProcessTap failed: \(osStatus)")
             return
         }
-        if let aq = audioQueue {
-            // Allocate and enqueue buffers
-            let bufferByteSize: UInt32 = UInt32(samplesCount) * bytesPerSample
-            for i in 0..<buffers.count {
-                osStatus = AudioQueueAllocateBuffer(aq, bufferByteSize, &buffers[i])
-                guard osStatus == noErr else {
-                    print("AudioQueueAllocateBuffer failed: \(osStatus)")
-                    return
-                }
-                if let buffer = buffers[i] {
-                    osStatus = AudioQueueEnqueueBuffer(aq, buffer, 0, nil)
-                    guard osStatus == noErr else {
-                        print("AudioQueueEnqueueBuffer failed: \(osStatus)")
-                        return
-                    }
-                    let indexPointer = UnsafeMutablePointer<Int>.allocate(capacity: 1)
-                    indexPointer.pointee = i
-                    buffer.pointee.mUserData = UnsafeMutableRawPointer(indexPointer)
-                }
+
+        let aggregateDescription: [String: Any] = [
+            kAudioAggregateDeviceNameKey: "macSpec tap device",
+            kAudioAggregateDeviceUIDKey: "com.innersoft.macSpec.tap",
+            kAudioAggregateDeviceIsPrivateKey: true,
+            kAudioAggregateDeviceTapAutoStartKey: true,
+            kAudioAggregateDeviceTapListKey: [[
+                kAudioSubTapUIDKey: tapDescription.uuid.uuidString,
+                kAudioSubTapDriftCompensationKey: true
+            ]]
+        ]
+        osStatus = AudioHardwareCreateAggregateDevice(aggregateDescription as CFDictionary, &aggregateID)
+        guard osStatus == noErr else {
+            print("AudioHardwareCreateAggregateDevice failed: \(osStatus)")
+            return
+        }
+
+        osStatus = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, tapQueue) { [weak self] _, inInputData, _, _, _ in
+            self?.processTap(bufferList: inInputData)
+        }
+        guard osStatus == noErr, let ioProcID = ioProcID else {
+            print("AudioDeviceCreateIOProcIDWithBlock failed: \(osStatus)")
+            return
+        }
+
+        osStatus = AudioDeviceStart(aggregateID, ioProcID)
+        guard osStatus == noErr else {
+            print("AudioDeviceStart failed: \(osStatus)")
+            return
+        }
+        print("Started sampling")
+        sampling = true
+        updateDisplayTimer()
+    }
+
+    func stopSampling() {
+        if let ioProcID = ioProcID, aggregateID != AudioObjectID(kAudioObjectUnknown) {
+            AudioDeviceStop(aggregateID, ioProcID)
+            AudioDeviceDestroyIOProcID(aggregateID, ioProcID)
+            self.ioProcID = nil
+        }
+        if aggregateID != AudioObjectID(kAudioObjectUnknown) {
+            AudioHardwareDestroyAggregateDevice(aggregateID)
+            aggregateID = AudioObjectID(kAudioObjectUnknown)
+        }
+        if tapID != AudioObjectID(kAudioObjectUnknown) {
+            AudioHardwareDestroyProcessTap(tapID)
+            tapID = AudioObjectID(kAudioObjectUnknown)
+        }
+        sampling = false
+    }
+
+    // Translates a bundle ID to its Core Audio process object (nil if the app isn't running)
+    private func findAudioProcess(bundleID: String) -> AudioObjectID? {
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+            return nil
+        }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var pid = app.processIdentifier
+        var processObject = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let osStatus = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            UInt32(MemoryLayout<pid_t>.size),
+            &pid,
+            &size,
+            &processObject
+        )
+        guard osStatus == noErr, processObject != AudioObjectID(kAudioObjectUnknown) else {
+            return nil
+        }
+        return processObject
+    }
+
+    // Runs on tapQueue: downmix to mono and hand off full FFT-sized chunks
+    private func processTap(bufferList: UnsafePointer<AudioBufferList>) {
+        let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: bufferList))
+        guard let buffer = buffers.first, let data = buffer.mData else { return }
+        let channels = max(Int(buffer.mNumberChannels), 1)
+        let frames = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size / channels
+        let floatData = data.assumingMemoryBound(to: Float.self)
+
+        for frame in 0..<frames {
+            var sum: Float = 0.0
+            for channel in 0..<channels {
+                sum += floatData[frame * channels + channel]
             }
-            osStatus = AudioQueueStart(aq, nil)
-            guard osStatus == noErr else {
-                print("AudioQueueStart failed: \(osStatus)")
-                return
+            pending.append(sum / Float(channels))
+        }
+        while pending.count >= samplesCount {
+            let chunk = Array(pending.prefix(samplesCount))
+            pending.removeFirst(samplesCount)
+            DispatchQueue.main.async {
+                self.update(audioSamples: chunk)
             }
-            sampling = true
         }
     }
-    
-    func stopSampling()  {
-        if let aq = audioQueue {
-            var osStatus = AudioQueueStop(aq, false)
-            guard osStatus == noErr else {
-                print("AudioQueueStop failed: \(osStatus)")
-                return
+
+    // Drives update() from a timer when the tap can't (capture failed or non-audio source)
+    private func updateDisplayTimer() {
+        let needsTimer = !sampling && source != .audio
+        if needsTimer && displayTimer == nil {
+            displayTimer = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { [weak self] _ in
+                self?.update()
             }
-            osStatus = AudioQueueDispose(aq, false)
-            guard osStatus == noErr else {
-                print("AudioQueueDispose failed: \(osStatus)")
-                return
-            }
-            audioQueue = nil
-            sampling = false
+        } else if !needsTimer, let timer = displayTimer {
+            timer.invalidate()
+            displayTimer = nil
         }
-        for buffer in buffers {
-            if let buf = buffer, let userData = buf.pointee.mUserData {
-                let indexPointer = userData.assumingMemoryBound(to: Int.self)
-                indexPointer.deallocate() // Deallocate the memory
-            }
-        }
-        buffers.removeAll()
     }
-    
+
     func adjustValue(current: CGFloat, new: Float) -> CGFloat {
         let value = (CGFloat(new) * 0.07 / CGFloat(samplesCount)).squareRoot()
         if value > current || current - barDelay < value {
@@ -184,9 +225,8 @@ class SpecData: ObservableObject {
         }
         return current - barDelay
     }
-    
-    func update(bufIndex: Int) {
-        guard bufIndex < buffers.count else { return }
+
+    func update(audioSamples: [Float]? = nil) {
         guard !inUpdate else {
             print("overrun")
             return
@@ -194,29 +234,17 @@ class SpecData: ObservableObject {
         inUpdate = true
 
         var real: [Float]
-        
-        if source != .audio {
-            real = [Float](repeating: 0.0, count: samplesCount)
-            for i in 0..<samples.count {
-                real[i] = Float(samples[i])
+        if source == .audio, var captured = audioSamples {
+            if captured.count < samplesCount {
+                captured += [Float](repeating: 0.0, count: samplesCount - captured.count)
             }
-        }
-        else if let inBuffer = buffers[bufIndex] {
-            let audioData = inBuffer.pointee.mAudioData
-            let bufSamples = Int(inBuffer.pointee.mAudioDataByteSize) / MemoryLayout<Float>.size
-            let copyCount = min(samplesCount, bufSamples)
-            real = [Float](repeating: 0.0, count: samplesCount)
-            audioData.withMemoryRebound(to: Float.self, capacity: copyCount) { floatPointer in
-                for i in 0..<copyCount {
-                    real[i] = floatPointer[i]
-                }
-            }
-            samples = real.map { CGFloat($0) }
+            real = captured
+            samples = captured.map { CGFloat($0) }
         }
         else {
-            real = [Float](repeating: 0.0, count: samplesCount)
+            real = samples.map { Float($0) }
         }
-        
+
         var imag = [Float](repeating: 0.0, count: samplesCount)
         real.withUnsafeMutableBufferPointer { realPtr in
             imag.withUnsafeMutableBufferPointer { imagPtr in
@@ -242,10 +270,11 @@ class SpecData: ObservableObject {
         }
         bars = newBars
         peaks = newPeaks
+
         if self.source == .generated {
             testPhase = testPhase > maxTestPhase ? 0.0 : testPhase + 0.01
         }
         inUpdate = false
     }
-            
+
 }
