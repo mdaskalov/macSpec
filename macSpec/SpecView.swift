@@ -52,6 +52,6 @@ struct SpecView: View {
     .padding()
     .frame(width: 500, height: 470)
     .onReceive(timer) { _ in
-        data.update(bufIndex: 0)
+        data.update()
     }
 }
