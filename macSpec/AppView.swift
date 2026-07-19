@@ -12,7 +12,19 @@ struct AppView: View {
     @StateObject var data = SpecData()
     @State var delay = 0.0
     @State var peaks: CGFloat = 0
-    
+
+    private var sourceBinding: Binding<Source> {
+        Binding(
+            get: { data.source },
+            set: { newValue in
+                guard data.source != newValue else { return }
+                DispatchQueue.main.async {
+                    data.source = newValue
+                }
+            }
+        )
+    }
+
     var body: some View {
         VStack {
             HStack {
@@ -20,7 +32,7 @@ struct AppView: View {
                     .aspectRatio(1.6, contentMode: .fit)
                     .frame(maxHeight: 150)
                 VStack(alignment: .leading) {
-                    Picker("", selection: $data.source) {
+                    Picker("", selection: sourceBinding) {
                         Text("Audio").tag(Source.audio)
                         Text("Test").tag(Source.test)
                         Text("Generated").tag(Source.generated)
@@ -38,7 +50,7 @@ struct AppView: View {
         }
         .padding()
         .frame(minWidth: 600, minHeight: 400)
-        .onAppear() {
+        .task {
             data.startSampling()
         }
     }
