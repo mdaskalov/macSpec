@@ -38,17 +38,69 @@ final class FrameData: ObservableObject {
 class SpecData: ObservableObject {
     let maxTestPhase: Double = 190.0
     let samplesCount: Int = 400
+
+    // The bars are spread evenly over the mel scale rather than over frequency
+    // or over log frequency. Mel is the perceptual scale: near-linear below
+    // the break frequency, logarithmic above it.
+    //
+    // That shape is what suits a single fixed-resolution FFT. Pure log spacing
+    // magnifies the bottom of the spectrum, which is exactly where 23Hz bins
+    // have nothing to show - a 50Hz tone would smear over 37 bars. Mel keeps
+    // the bars roughly proportional to the bins instead (0.65 bins wide at
+    // 20Hz rising to 18.7 at 20kHz, against 0.04 to 37.6 for pure log), so one
+    // 2048-point window serves the whole axis.
+    private static let minFrequency: Double = 20.0
+    private static let maxFrequency: Double = 20_000.0
+    // Where mel bends from linear to logarithmic, and so the one knob that
+    // controls the look: lower it to give the bass more of the display (more
+    // log-like), raise it for less.
+    private static let melBreakFrequency: Double = 700.0
+    private static let melScale: Double = 2595.0
+    private static func mel(_ frequency: Double) -> Double {
+        melScale * log10(1 + frequency / melBreakFrequency)
+    }
+    private static func frequency(mel: Double) -> Double {
+        melBreakFrequency * (pow(10, mel / melScale) - 1)
+    }
+
+    // Used to lay the bars out until the tap reports its real rate.
+    private static let defaultSampleRate: Double = 48_000.0
+
+    // Free to choose: mel spacing keeps bar width tracking bin width, so this
+    // is a display-density decision and nothing else depends on it. (It is
+    // independent of samplesCount, which only sizes the waveform buffer.)
     let barsCount: Int = 160
 
     // Display tick rate: update() (and with it the bar decay and peak hold,
     // both counted in frames) runs this many times per second.
     let displayRefreshRate: Double = 60.0
 
-    var barDelay: CGFloat = 0.05
-    var peakDelay: CGFloat = 50.0
-    var dbFloor: Float = -60.0
+    // @Published so that the readout next to the sliders re-renders as they
+    // move. A plain var still drives the Slider (the binding writes it), but
+    // nothing announces the change, so any Text showing the value keeps the
+    // number it was first drawn with. Only AppView observes these - SpecView
+    // watches `frame` alone - so this costs a control redraw during a drag and
+    // nothing per audio frame.
+    @Published var barDelay: CGFloat = 0.04
+    @Published var peakDelay: CGFloat = 60.0
+    // Unlike the other two this also changes the analysis, not just how the
+    // next frame decays: it is the dB range the bars are drawn against. The
+    // test tone is only analyzed when it changes, so moving this while it is
+    // showing has to re-run that - otherwise the floor appears to do nothing
+    // until the test slider is nudged.
+    @Published var dbFloor: Float = -55.0 {
+        didSet {
+            guard source != .audio, dbFloor != oldValue else { return }
+            refreshTestSpectrum()
+        }
+    }
 
-    @Published private(set) var sampleRate: Double?
+    @Published private(set) var sampleRate: Double? {
+        didSet {
+            guard sampleRate != oldValue else { return }
+            rebuildBarMappings()
+        }
+    }
 
     @Published var source: Source = .audio {
         didSet {
@@ -72,26 +124,21 @@ class SpecData: ObservableObject {
     // exactly the input the next frame's easing needs.
     let frame: FrameData
 
-    // The FFT transforms a fixed power-of-two window (independent of
-    // samplesCount, which only sizes the waveform display buffer). This needs
-    // to be large enough to resolve bass frequencies distinctly: bin width is
-    // sampleRate/fftSize, so 2048 (~21.5Hz/bin) gives real low-end resolution.
-    private let fftSize: Int = 2048
-    private let fftLength: vDSP_Length
-    private let fftSetup: FFTSetup?
-    private var fftResult: [Float]
+    // One resolution for the whole display. 2048 is ~23Hz bins and a 43ms
+    // window at 48kHz.
+    //
+    // Deliberately not paired with a longer window for the bass: a 8192-point
+    // window resolves low notes far better, but it is 171ms of history whose
+    // Hann weighting centres ~85ms in the past, against ~21ms for this one.
+    // Bass bars then lag treble bars by ~64ms on screen, which reads as a
+    // sluggish, oddly disconnected display - and no display refresh rate fixes
+    // it, because window length, not frame rate, is what limits how fast a bar
+    // can change.
+    private let band = FFTBand(size: 2048)
 
-    // How far up the spectrum the last bar reaches, as a fraction of Nyquist
-    // (sampleRate / 2, the highest frequency the FFT can resolve at all -
-    // 24kHz at a 48kHz device rate, 22.05kHz at 44.1kHz). 1.0 shows
-    // everything; lowering it trims the near-silent top end and spreads the
-    // bars over the audible range instead.
-    private let maxFrequencyRatio: Double = 0.85
-
-    // Bars are spaced logarithmically over the FFT bins so the musically
-    // busy low/mid range fills most of the display
-    private let maxBin: Int
-    private let barBinRanges: [ClosedRange<Int>]
+    // Where each bar reads from. Maps Hz to bin indices, so it is rebuilt
+    // whenever sampleRate changes.
+    private var barMappings: [BarBand?]
 
     private var peakTime: [Int]
 
@@ -147,46 +194,178 @@ class SpecData: ObservableObject {
 
     init() {
         frame = FrameData(samplesCount: samplesCount, barsCount: barsCount)
-
-        fftLength = vDSP_Length(log2(Double(fftSize)))
-        fftSetup = vDSP_create_fftsetup(fftLength, FFTRadix(kFFTRadix2))
-        fftResult = [Float](repeating: 0.0, count: fftSize)
-
         peakTime = [Int](repeating: 0, count: barsCount)
-
-        let nyquistBin = fftSize / 2
-        maxBin = max(1, Int(Double(nyquistBin) * maxFrequencyRatio))
-        barBinRanges = SpecData.computeBarBinRanges(barsCount: barsCount, maxBin: maxBin)
+        // Laid out for the assumed rate; rebuilt when the tap reports its own.
+        barMappings = SpecData.computeBarMappings(
+            barsCount: barsCount,
+            binWidth: SpecData.defaultSampleRate / Double(band.size),
+            maxBin: band.maxBin
+        )
 
         startDisplayTimer()
     }
 
-    // Maps bar index -> a range of FFT bins, growing exponentially so low
-    // bars each get their own bin (finest resolution the FFT allows) while
-    // high bars aggregate a wide swath of high-frequency bins into one.
-    private static func computeBarBinRanges(barsCount: Int, maxBin: Int) -> [ClosedRange<Int>] {
-        var ranges: [ClosedRange<Int>] = []
-        ranges.reserveCapacity(barsCount)
-        var previousUpper = 0
-        for bar in 0..<barsCount {
-            let t = Double(bar + 1) / Double(barsCount)
-            let raw = Int(pow(Double(maxBin), t).rounded())
-            let upper = min(max(raw, previousUpper + 1), maxBin)
-            let lower = previousUpper + 1
-            ranges.append(lower...upper)
-            previousUpper = upper
+    // What one bar reads out of the spectrum. Which case applies depends on
+    // the bar's bandwidth relative to a bin, which grows with frequency.
+    //
+    // The band edges are interpolation taps between adjacent bins rather than
+    // being rounded to whole bins, which is what keeps a bar's reading
+    // continuous as its band changes width. Rounding gave the two regimes
+    // different answers to the same question: a bar covering two whole bins
+    // reported their peak, while a neighbour covering less than one bin
+    // reported a *blend* of that same pair. Below ~330Hz, where the bands
+    // hover around one bin wide, bars alternate between the two - so alternate
+    // bars read low and punched a hole in the middle of a peak.
+    private struct BarBand {
+        // Lower and upper band edge, each as a bin index plus how far it lies
+        // towards the next bin.
+        let lowerBin: Int
+        let lowerFraction: Float
+        let upperBin: Int
+        let upperFraction: Float
+        // Whole bins strictly inside the band. Empty once the band is narrower
+        // than the gap between two bins, at which point the edge taps alone
+        // describe it - no special case needed.
+        let innerBins: ClosedRange<Int>?
+    }
+
+    // Maps bar index -> the band it covers, spread evenly along the mel scale.
+    // nil marks a bar above Nyquist for the current rate: kept as a bar rather
+    // than dropped, so the axis stays a fixed 20Hz...20kHz whatever the rate.
+    //
+    // Note the edges are not forced to advance at least one bin per bar.
+    // Forcing that makes the low bars tile bins 1,2,3... one-to-one, which is
+    // a linear axis; the intended spacing then only takes effect above the
+    // frequency where it overtakes the clamp, putting a kink in the axis with
+    // everything below it linear. A symmetric leakage skirt then renders wide
+    // on its low side and narrow on its high side.
+    private static func computeBarMappings(barsCount: Int, binWidth: Double, maxBin: Int) -> [BarBand?] {
+        let lowMel = mel(minFrequency)
+        let melPerBar = (mel(maxFrequency) - lowMel) / Double(barsCount)
+        // Clamped one short of maxBin because interpolating from a tap reads
+        // the bin above it as well.
+        func tap(at edge: Double) -> (bin: Int, fraction: Float) {
+            let bin = min(max(1, Int(edge.rounded(.down))), maxBin - 1)
+            return (bin, min(max(Float(edge - Double(bin)), 0), 1))
         }
-        return ranges
+        return (0..<barsCount).map { bar -> BarBand? in
+            let lower = frequency(mel: lowMel + melPerBar * Double(bar)) / binWidth
+            let upper = frequency(mel: lowMel + melPerBar * Double(bar + 1)) / binWidth
+            guard lower <= Double(maxBin) else { return nil }
+            let first = max(Int(lower.rounded(.down)) + 1, 1)
+            let last = min(Int(upper.rounded(.up)) - 1, maxBin)
+            let lowerTap = tap(at: lower)
+            let upperTap = tap(at: upper)
+            return BarBand(
+                lowerBin: lowerTap.bin,
+                lowerFraction: lowerTap.fraction,
+                upperBin: upperTap.bin,
+                upperFraction: upperTap.fraction,
+                innerBins: first <= last ? first...last : nil
+            )
+        }
+    }
+
+    // The bars are laid out in Hz, so a rate change moves every bar's bins.
+    // Without this each bar would keep pointing at the frequency it meant
+    // under the old rate.
+    private func rebuildBarMappings() {
+        barMappings = SpecData.computeBarMappings(
+            barsCount: barsCount,
+            binWidth: (sampleRate ?? SpecData.defaultSampleRate) / Double(band.size),
+            maxBin: band.maxBin
+        )
     }
 
     // A Hann window sized to the number of real (non-zero-padded) samples
-    // being analyzed, not to fftSize - a window shaped for 2048 samples
-    // landing on the boundary between a shorter buffer and its zero padding
-    // tapers the padding instead of the signal, which smears the spectrum.
+    // being analyzed, not to the band's size - a full-length window landing on
+    // the boundary between a shorter buffer and its zero padding tapers the
+    // padding instead of the signal, which smears the spectrum.
     private static func hannWindow(length: Int) -> [Float] {
         guard length > 1 else { return [Float](repeating: 1, count: length) }
         return (0..<length).map { n in
             0.5 * (1 - cos(2 * Float.pi * Float(n) / Float(length - 1)))
+        }
+    }
+
+    // Owns one FFT's setup, window and output magnitudes. Holding the window
+    // here is what lets it be cached: it only needs rebuilding when the number
+    // of real samples changes, which stops happening once the rolling buffer
+    // has filled.
+    private final class FFTBand {
+        let size: Int
+        // Highest bin holding a positive frequency (size/2 being Nyquist).
+        let maxBin: Int
+        private(set) var magnitudes: [Float]
+        // The |X|^2 a full-scale, bin-aligned sine would produce for however
+        // many real samples were windowed last call (Hann coherent gain is
+        // ~0.5, so that peaks at count * 0.5 / 2).
+        private(set) var referenceMagnitude: Float = 1
+
+        private let length: vDSP_Length
+        private let setup: FFTSetup?
+        private var real: [Float]
+        private var imag: [Float]
+        // Rebuilt only when the number of real samples changes, which stops
+        // happening once the rolling buffer has filled.
+        private var window: [Float] = []
+
+        init(size: Int) {
+            self.size = size
+            maxBin = size / 2
+            length = vDSP_Length(log2(Double(size)))
+            setup = vDSP_create_fftsetup(length, FFTRadix(kFFTRadix2))
+            real = [Float](repeating: 0, count: size)
+            imag = [Float](repeating: 0, count: size)
+            magnitudes = [Float](repeating: 0, count: size)
+        }
+
+        deinit {
+            if let setup {
+                vDSP_destroy_fftsetup(setup)
+            }
+        }
+
+        // Transforms the most recent `size` samples of source - its tail, not
+        // its head, so that a source longer than one window still yields the
+        // current audio rather than the oldest it happens to be holding.
+        func analyze(_ source: [Float]) {
+            let count = min(source.count, size)
+            guard count > 0 else {
+                for i in magnitudes.indices { magnitudes[i] = 0 }
+                referenceMagnitude = 1
+                return
+            }
+            if window.count != count {
+                window = SpecData.hannWindow(length: count)
+            }
+            let start = source.count - count
+            // vDSP rather than element-wise Swift loops: windowing and clearing
+            // together touch three 2048-element buffers every frame, and
+            // vDSP_fft_zip needs imag cleared each time because it transforms
+            // in place. Clearing real unconditionally (rather than only its
+            // zero-padded tail) costs one memset and saves a branch.
+            vDSP_vclr(&real, 1, vDSP_Length(size))
+            vDSP_vclr(&imag, 1, vDSP_Length(size))
+            source.withUnsafeBufferPointer { sourcePtr in
+                guard let sourceBase = sourcePtr.baseAddress else { return }
+                vDSP_vmul(sourceBase + start, 1, window, 1, &real, 1, vDSP_Length(count))
+            }
+            referenceMagnitude = pow(Float(count) * 0.25, 2)
+
+            real.withUnsafeMutableBufferPointer { realPtr in
+                imag.withUnsafeMutableBufferPointer { imagPtr in
+                    magnitudes.withUnsafeMutableBufferPointer { magPtr in
+                        guard let realBase = realPtr.baseAddress,
+                              let imagBase = imagPtr.baseAddress,
+                              let magBase = magPtr.baseAddress,
+                              let setup else { return }
+                        var splitComplex = DSPSplitComplex(realp: realBase, imagp: imagBase)
+                        vDSP_fft_zip(setup, &splitComplex, 1, length, FFTDirection(FFT_FORWARD))
+                        vDSP_zvmags(&splitComplex, 1, magBase, 1, vDSP_Length(size))
+                    }
+                }
+            }
         }
     }
 
@@ -197,9 +376,6 @@ class SpecData: ObservableObject {
             ProcessInfo.processInfo.endActivity(activityToken)
         }
         stopSampling()
-        if let fft = fftSetup {
-            vDSP_destroy_fftsetup(fft)
-        }
     }
 
     func startSampling() {
@@ -388,17 +564,22 @@ class SpecData: ObservableObject {
         }
 
         pending.append(contentsOf: downmixed)
-        while pending.count >= samplesCount {
-            let chunk = Array(pending.prefix(samplesCount))
-            pending.removeFirst(samplesCount)
+        // Only ever the most recent whole chunk is read, so take just that one.
+        // Looping a chunk at a time copied every older chunk in the buffer as
+        // well, only to overwrite it on the next turn.
+        let wholeChunks = pending.count / samplesCount
+        if wholeChunks > 0 {
+            let end = wholeChunks * samplesCount
+            let chunk = Array(pending[(end - samplesCount)..<end])
+            pending.removeFirst(end)
             latestChunkLock.lock()
             latestAudioChunk = chunk
             latestChunkLock.unlock()
         }
 
         fftWindowBuffer.append(contentsOf: downmixed)
-        if fftWindowBuffer.count > fftSize {
-            fftWindowBuffer.removeFirst(fftWindowBuffer.count - fftSize)
+        if fftWindowBuffer.count > band.size {
+            fftWindowBuffer.removeFirst(fftWindowBuffer.count - band.size)
         }
         latestChunkLock.lock()
         latestFFTWindow = fftWindowBuffer
@@ -410,7 +591,7 @@ class SpecData: ObservableObject {
     // yields exactly the same signal and the same spectrum.
     private func makeTestSignal() -> [Float] {
         let omega = testPhase / 64.0
-        return (0..<fftSize).map { Float(sin(Double($0) * omega)) }
+        return (0..<band.size).map { Float(sin(Double($0) * omega)) }
     }
 
     // Runs only when testPhase changes (slider drag, or the .generated sweep),
@@ -422,7 +603,10 @@ class SpecData: ObservableObject {
         let samples = signal.prefix(samplesCount).map { CGFloat($0) }
 
         let heights = spectrum(of: signal)
-        peakTime = [Int](repeating: 0, count: barsCount)
+        // Reset in place: the .generated sweep runs this every frame.
+        for i in peakTime.indices {
+            peakTime[i] = 0
+        }
 
         frame.publish(samples: samples, bars: heights, peaks: heights)
     }
@@ -473,37 +657,36 @@ class SpecData: ObservableObject {
         return current - barDelay
     }
 
-    // Windows, transforms and log-bins one buffer into barsCount heights.
+    // Windows, transforms and mel-bins one buffer into barsCount heights.
     // Pure: no smoothing, no peak state - both callers layer their own
     // behaviour on top (live audio eases, the test tone snaps).
     private func spectrum(of fftSource: [Float]) -> [CGFloat] {
-        let realCount = min(fftSource.count, fftSize)
-        let window = SpecData.hannWindow(length: realCount)
-        var fftInput = [Float](repeating: 0.0, count: fftSize)
-        for i in 0..<realCount {
-            fftInput[i] = fftSource[i] * window[i]
-        }
-        // Hann coherent gain is ~0.5, so a full-scale bin peaks at realCount * 0.5 / 2.
-        let referenceMagnitude = pow(Float(realCount) * 0.25, 2)
+        band.analyze(fftSource)
 
-        var imag = [Float](repeating: 0.0, count: fftSize)
-        fftInput.withUnsafeMutableBufferPointer { realPtr in
-            imag.withUnsafeMutableBufferPointer { imagPtr in
-                if let realBase = realPtr.baseAddress, let imagBase = imagPtr.baseAddress {
-                    var splitComplex = DSPSplitComplex(realp: realBase, imagp: imagBase)
-                    if let fft = fftSetup {
-                        vDSP_fft_zip(fft, &splitComplex, 1, fftLength, FFTDirection(FFT_FORWARD))
-                        vDSP_zvmags(&splitComplex, 1, &fftResult, 1, vDSP_Length(fftSize))
-                    }
-                }
-            }
+        let magnitudes = band.magnitudes
+        let referenceMagnitude = band.referenceMagnitude
+        // Reads the spectrum where the band edge actually falls, between bins.
+        func edge(bin: Int, fraction: Float) -> Float {
+            let low = magnitudes[bin]
+            let high = magnitudes[bin + 1]
+            return low + (high - low) * fraction
         }
 
         var heights = [CGFloat](repeating: 0, count: barsCount)
         for i in 0..<barsCount {
             var magnitude: Float = 0
-            for bin in barBinRanges[i] {
-                magnitude = max(magnitude, fftResult[bin])
+            if let mapping = barMappings[i] {
+                // The loudest point anywhere in the band: both edges, plus
+                // every whole bin between them.
+                magnitude = max(
+                    edge(bin: mapping.lowerBin, fraction: mapping.lowerFraction),
+                    edge(bin: mapping.upperBin, fraction: mapping.upperFraction)
+                )
+                if let innerBins = mapping.innerBins {
+                    for bin in innerBins {
+                        magnitude = max(magnitude, magnitudes[bin])
+                    }
+                }
             }
             heights[i] = magnitudeToHeight(magnitude, referenceMagnitude: referenceMagnitude)
         }
@@ -557,10 +740,11 @@ class SpecData: ObservableObject {
 
         var newBars = frame.bars
         var newPeaks = frame.peaks
+        let holdFrames = Int(peakDelay)
         for i in 0..<barsCount {
             newBars[i] = adjustValue(current: newBars[i], new: heights[i])
             peakTime[i] += 1
-            if peakTime[i] > Int(peakDelay) || newBars[i] > newPeaks[i] {
+            if peakTime[i] > holdFrames || newBars[i] > newPeaks[i] {
                 peakTime[i] = 0
                 newPeaks[i] = newBars[i]
             }
