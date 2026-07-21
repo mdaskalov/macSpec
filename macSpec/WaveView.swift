@@ -8,15 +8,15 @@
 import SwiftUI
 
 struct WaveView: View {
-    @ObservedObject var data: SpecData
-    
+    @ObservedObject var frame: FrameData
+
     var body: some View {
         Canvas { context, size in
             var path = Path()
             let height = size.height / 2
-            let step = size.width / CGFloat(max(data.samples.count, 1))
+            let step = size.width / CGFloat(max(frame.samples.count, 1))
             var x = 0.0
-            for (index, value) in data.samples.enumerated() {
+            for (index, value) in frame.samples.enumerated() {
                 if index == 0 {
                     path.move(to: CGPoint(x: x, y: height - (value * height)))
                 } else {
@@ -37,7 +37,7 @@ struct WaveView: View {
     @Previewable @State var data = SpecData()
     VStack {
         Slider(value: $data.testPhase, in: 0...100)
-        WaveView(data: data)
+        WaveView(frame: data.frame)
             .aspectRatio(1.6, contentMode: .fit)
             .frame(height: 150)
     }

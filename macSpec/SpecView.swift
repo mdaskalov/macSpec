@@ -8,11 +8,13 @@
 import SwiftUI
 
 struct SpecView: View {
-    @ObservedObject var data: SpecData
-    
+    @ObservedObject var frame: FrameData
+
     var body: some View {
         Canvas { context, size in
-            let barsCount = CGFloat(data.bars.count)
+            let bars = frame.bars
+            let peaks = frame.peaks
+            let barsCount = CGFloat(bars.count)
             let barGap = size.width / barsCount / 10
             let gapsWidth = barsCount * barGap
             let barWidth = (size.width - gapsWidth) / barsCount
@@ -21,10 +23,10 @@ struct SpecView: View {
             var barPath = Path()
             var peakPath = Path()
             
-            for bar in 0..<data.bars.count {
+            for bar in 0..<bars.count {
                 let x = barGap + CGFloat(bar) * xAdjust
-                let y = data.bars[bar] * size.height
-                let yPeak = data.peaks[bar] * size.height
+                let y = bars[bar] * size.height
+                let yPeak = peaks[bar] * size.height
 
                 barPath.addRect(CGRect(x: x, y: size.height - y, width: barWidth, height: y))
 
@@ -47,7 +49,7 @@ struct SpecView: View {
     @Previewable @State var timer = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
     VStack {
         Slider(value: $data.testPhase, in: 0...data.maxTestPhase)
-        SpecView(data: data)
+        SpecView(frame: data.frame)
     }
     .padding()
     .frame(width: 500, height: 470)
