@@ -9,6 +9,11 @@ import SwiftUI
 
 struct SpecView: View {
     @ObservedObject var frame: FrameData
+    
+    @Environment(\.displayScale) private var displayScale
+
+    private let borderWidth: CGFloat = 1
+    private let insetWidth: CGFloat = 1
 
     var body: some View {
         Canvas { context, size in
@@ -20,12 +25,16 @@ struct SpecView: View {
             let barWidth = (size.width - gapsWidth) / barsCount
             let xAdjust = barWidth + barGap
 
+            let minBarHeight = 1 / displayScale
+
             var barPath = Path()
             var peakPath = Path()
-            
+
+            let xOrigin = barGap / 2
+
             for bar in 0..<bars.count {
-                let x = barGap + CGFloat(bar) * xAdjust
-                let y = bars[bar] * size.height
+                let x = xOrigin + CGFloat(bar) * xAdjust
+                let y = max(bars[bar] * size.height, minBarHeight)
                 let yPeak = peaks[bar] * size.height
 
                 barPath.addRect(CGRect(x: x, y: size.height - y, width: barWidth, height: y))
@@ -39,8 +48,9 @@ struct SpecView: View {
             context.fill(barPath, with: .color(.yellow))
             context.stroke(peakPath, with: .color(.red), lineWidth: 1)
         }
+        .padding(borderWidth + insetWidth)
         .background(.black)
-        .border(Color(.darkGray))
+        .border(Color(.darkGray), width: borderWidth)
     }
 }
 
