@@ -61,8 +61,8 @@ struct AppView: View {
                         Text("Peak Hold")
                         Slider(value: $data.peakDelay, in: 0...200)
                     }
-                    Text(String(format: "floor: %.0f, barDecay: %.3f peakDelay: %d, SampleRate: %.1f kHz, %.1f Hz",
-                                data.dbFloor, data.barDelay, data.peakDelay, (data.sampleRate ?? 0) / 1000, data.testFrequency ?? 0 ))
+                    Text(String(format: "floor: %.0f, barDecay: %.3f peakDelay: %.0f, SampleRate: %.1f kHz",
+                                data.dbFloor, data.barDelay, data.peakDelay, (data.sampleRate ?? 0) / 1000))
                 }
                 .frame(maxWidth: .infinity)
             }
