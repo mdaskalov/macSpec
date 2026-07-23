@@ -9,61 +9,72 @@ import SwiftUI
 
 struct SpecView: View {
     @ObservedObject var frame: FrameData
-    
-    @Environment(\.displayScale) private var displayScale
 
-    private let borderWidth: CGFloat = 1
-    private let insetWidth: CGFloat = 1
+    private let borderWidth: CGFloat = 1.5
 
     var body: some View {
-        Canvas { context, size in
-            let bars = frame.bars
-            let peaks = frame.peaks
-            let barsCount = CGFloat(bars.count)
-            let barGap = size.width / barsCount / 10
-            let gapsWidth = barsCount * barGap
-            let barWidth = (size.width - gapsWidth) / barsCount
-            let xAdjust = barWidth + barGap
+        GeometryReader { geometry in
+            let barsCount = CGFloat(frame.bars.count)
+            let barGap = geometry.size.width / barsCount / 10
 
-            let minBarHeight = 1 / displayScale
+            Canvas { context, size in
+                let bars = frame.bars
+                let peaks = frame.peaks
+                let gapsWidth = (barsCount - 1) * barGap
+                let barWidth = (size.width - gapsWidth) / barsCount
+                let xAdjust = barWidth + barGap
+                let minBarHeight = 1.0
+                var barPath = Path()
+                var peakPath = Path()
 
-            var barPath = Path()
-            var peakPath = Path()
+                for bar in 0..<bars.count {
+                    let x = CGFloat(bar) * xAdjust
+                    let y = max(bars[bar] * size.height, minBarHeight)
+                    let yPeak = peaks[bar] * size.height
 
-            let xOrigin = barGap / 2
+                    barPath.addRect(CGRect(x: x, y: size.height - y, width: barWidth, height: y))
 
-            for bar in 0..<bars.count {
-                let x = xOrigin + CGFloat(bar) * xAdjust
-                let y = max(bars[bar] * size.height, minBarHeight)
-                let yPeak = peaks[bar] * size.height
-
-                barPath.addRect(CGRect(x: x, y: size.height - y, width: barWidth, height: y))
-
-                if yPeak > y {
-                    peakPath.move(to: CGPoint(x: x, y: size.height - yPeak))
-                    peakPath.addLine(to: CGPoint(x: x + barWidth, y: size.height - yPeak))
+                    if yPeak > y {
+                        peakPath.move(to: CGPoint(x: x, y: size.height - yPeak))
+                        peakPath.addLine(to: CGPoint(x: x + barWidth, y: size.height - yPeak))
+                    }
                 }
-            }
 
-            context.fill(barPath, with: .color(.yellow))
-            context.stroke(peakPath, with: .color(.red), lineWidth: 1)
+                context.fill(barPath, with: .color(.yellow))
+                context.stroke(peakPath, with: .color(.red), lineWidth: 1)
+            }
+            .padding(borderWidth + barGap)
+            .background(.black)
+            .border(Color(.specBorder), width: borderWidth)
         }
-        .padding(borderWidth + insetWidth)
-        .background(.black)
-        .border(Color(.darkGray), width: borderWidth)
     }
 }
 
 #Preview {
-    @Previewable @State var data = SpecData()
-    @Previewable @State var timer = Timer.publish(every: 0.02, on: .main, in: .common).autoconnect()
-    VStack {
-        Slider(value: $data.testPhase, in: 0...data.maxTestPhase)
-        SpecView(frame: data.frame)
+    @Previewable @State var frame = FrameData(samplesCount: 400, barsCount: 51)
+    @Previewable @State var position = 0.5
+
+    // A moving bell curve of bars with the peaks held a little above them, so
+    // the preview exercises both paths SpecView draws without any live audio.
+    func simulate(_ position: Double) {
+        let barsCount = frame.bars.count
+        let center = position * Double(barsCount - 1)
+        let width = Double(barsCount) / 15
+        let bars = (0..<barsCount).map { bar -> CGFloat in
+            let distance = (Double(bar) - center) / width
+            return CGFloat(exp(-distance * distance))
+        }
+        let peaks = bars.map { min($0 + 0.02, 1.0) }
+        frame.publish(samples: [], bars: bars, peaks: peaks)
+    }
+
+    return VStack {
+        Slider(value: $position, in: 0...1)
+        SpecView(frame: frame)
     }
     .padding()
     .frame(width: 500, height: 470)
-    .onReceive(timer) { _ in
-        data.update()
+    .onChange(of: position, initial: true) { _, newValue in
+        simulate(newValue)
     }
 }
