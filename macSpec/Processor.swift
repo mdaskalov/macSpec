@@ -30,6 +30,11 @@ final class Processor: ObservableObject {
 
     private var inUpdate = false
     private var displayTimer: DispatchSourceTimer?
+    // The test-tone inputs behind the last refreshTestSpectrum(). update() re-runs
+    // it whenever these move; cleared while live audio shows so re-entering test
+    // mode always repaints. nil means "nothing analyzed since we left test mode".
+    private struct TestInputs: Equatable { var frequency: Double; var dbFloor: Float }
+    private var lastTestInputs: TestInputs?
     // Held for the object's lifetime to opt out of App Nap, which would otherwise
     // throttle and coalesce our timers once the app stops being frontmost.
     private var activityToken: NSObjectProtocol?
@@ -67,8 +72,6 @@ final class Processor: ObservableObject {
             binWidth: configuration.sampleRate / Double(configuration.fftSize),
             maxBin: band.maxBin
         )
-
-        configuration.onReanalyze = { [weak self] in self?.refreshTestSpectrum() }
 
         startDisplayTimer()
 
@@ -289,13 +292,13 @@ final class Processor: ObservableObject {
     }
 
     // Static sine at testFrequency, phase 0, filling the whole window - no rolling
-    // state, so a given testPhase always yields the same spectrum.
+    // state, so a given testFrequency always yields the same spectrum.
     private func makeTestSignal() -> [Float] {
-        let omega = configuration.testPhase / 64.0
+        let omega = 2 * .pi * configuration.testFrequency / configuration.sampleRate
         return (0..<band.size).map { Float(sin(Double($0) * omega)) }
     }
 
-    // Runs only when testPhase changes (slider or sweep), not per display tick.
+    // Runs only when testFrequency changes (slider or sweep), not per display tick.
     // Bars/peaks are written directly so the display snaps to the true spectrum.
     private func refreshTestSpectrum() {
         let signal = makeTestSignal()
@@ -375,14 +378,23 @@ final class Processor: ObservableObject {
     }
 
     // Display tick. Only live audio needs per-frame work; the test tone is static,
-    // its sweep just walks testPhase whose didSet re-analyzes.
+    // re-analyzed here only when one of its inputs has moved since the last tick.
     func update() {
         guard !configuration.isTest else {
             if configuration.isAnimating {
-                configuration.testPhase = configuration.testPhase > configuration.maxTestPhase ? 0.0 : configuration.testPhase + 0.01
+                configuration.testFrequency = configuration.testFrequency > configuration.maxFrequency ? configuration.minFrequency : configuration.testFrequency + configuration.testSweepStep
+            }
+            // Re-analyze when a test-tone input has moved - slider, sweep or
+            // dbFloor - or when the tone was just switched on (lastTestInputs is
+            // nil, having been cleared while live audio was showing).
+            let inputs = TestInputs(frequency: configuration.testFrequency, dbFloor: configuration.dbFloor)
+            if inputs != lastTestInputs {
+                lastTestInputs = inputs
+                refreshTestSpectrum()
             }
             return
         }
+        lastTestInputs = nil
 
         guard !inUpdate else {
             logOverrun()

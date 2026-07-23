@@ -10,10 +10,8 @@ import Foundation
 
 // Every constant and tunable parameter the display is built from. The processor
 // reads what it needs from here; the views bind the sliders to the @Published
-// values. The onReanalyze hook is the only channel back to the processor,
-// installed by it so a test-tone parameter change triggers a re-analysis.
+// values.
 final class Configuration: ObservableObject {
-    let maxTestPhase: Double = 190.0
     let samplesCount: Int = 400
 
     // One resolution for the whole display. 2048 is ~23Hz bins and a 43ms
@@ -80,53 +78,33 @@ final class Configuration: ObservableObject {
     @Published var barFrames: CGFloat = 12.0
     @Published var peakFrames: CGFloat = 60.0
     // Unlike the other two this also changes the analysis, not just how the
-    // next frame decays: it is the dB range the bars are drawn against. The
-    // test tone is only analyzed when it changes, so moving this while it is
-    // showing has to re-run that - otherwise the floor appears to do nothing
-    // until the test slider is nudged.
-    @Published var dbFloor: Float = -50.0 {
-        didSet {
-            guard isTest, dbFloor != oldValue else { return }
-            onReanalyze?()
-        }
-    }
+    // next frame decays: it is the dB range the bars are drawn against. While
+    // the test tone shows, the processor re-analyzes it when this moves so the
+    // floor takes effect immediately rather than at the next test-slider nudge.
+    @Published var dbFloor: Float = -50.0
 
     // Swaps the live audio spectrum for a static test tone. Turning it off
-    // just stops any running sweep - testPhase is left where it is, so the
+    // just stops any running sweep - testFrequency is left where it is, so the
     // tone's frequency stays on the readout as a reference to line up against
     // the peaks of the live audio.
     @Published var isTest: Bool = false {
         didSet {
-            guard isTest != oldValue else { return }
-            // Turning on: paint the tone's spectrum right away (testPhase
-            // hasn't changed, so nothing else would). Turning off: stop the
-            // sweep and let the next audio frame take over.
-            if isTest {
-                onReanalyze?()
-            } else {
-                isAnimating = false
-            }
+            // Turning the tone off stops any running sweep; the processor's next
+            // tick then paints the tone on, or hands back to live audio off.
+            if !isTest { isAnimating = false }
         }
     }
 
-    // Walks testPhase across the display, sweeping the test tone through its
-    // frequency range. Only meaningful while isTest is on.
+    // Walks testFrequency across the range, sweeping the test tone. Only
+    // meaningful while isTest is on.
     @Published var isAnimating: Bool = false
 
-    // The frequency the tone sits at, kept whether or not the tone is showing
-    // so it can be read off while comparing against live audio.
-    var testFrequency: Double {
-        (testPhase / 64.0) * sampleRate / (2 * .pi)
-    }
+    // The frequency the tone sits at, in Hz. The slider binds to it directly and
+    // the processor builds the sine straight from it; kept whether or not the
+    // tone is showing so it can be read off while comparing against live audio.
+    @Published var testFrequency: Double = 20.0
 
-    @Published var testPhase: Double = 0.0 {
-        didSet {
-            guard isTest else { return }
-            onReanalyze?()
-        }
-    }
-
-    // Re-run the test-tone analysis: dbFloor or testPhase, which change what it
-    // produces, has moved. Installed by the processor.
-    var onReanalyze: (() -> Void)?
+    // Per display tick the sweep advances the tone by this, wrapping at
+    // maxFrequency. 1.2Hz at 60fps is ~72Hz/s - a full-range sweep in ~4.5min.
+    let testSweepStep: Double = 1.2
 }

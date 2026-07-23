@@ -38,7 +38,7 @@ struct AppView: View {
                             .toggleStyle(.button)
                             .buttonBorderShape(.circle)
                             .disabled(!configuration.isTest)
-                            Slider(value: $configuration.testPhase, in: 0...configuration.maxTestPhase)
+                            Slider(value: $configuration.testFrequency, in: configuration.minFrequency...configuration.maxFrequency)
                             Text("\(configuration.testFrequency, format: .number.precision(.fractionLength(1))) Hz")
                                 .lineLimit(1)
                                 .monospacedDigit()
