@@ -11,9 +11,12 @@
 		266B81CF1D47A7FD000261CE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 266B81CE1D47A7FD000261CE /* Assets.xcassets */; };
 		26C3E8111D4AA6F800AF5FED /* SpecView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C3E8101D4AA6F800AF5FED /* SpecView.swift */; };
 		279165D91E0366CA008EECF2 /* resources in Resources */ = {isa = PBXBuildFile; fileRef = 279165D81E0366CA008EECF2 /* resources */; };
-		C440AD932D1824B4001E6038 /* SpecData.swift in Sources */ = {isa = PBXBuildFile; fileRef = C440AD922D1824B4001E6038 /* SpecData.swift */; };
 		C47F62CB2D26F2A3009B4491 /* AppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47F62CA2D26F2A3009B4491 /* AppView.swift */; };
+		C4A0000000000000000000A2 /* Processor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A0000000000000000000A1 /* Processor.swift */; };
+		C4A0000000000000000000C2 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A0000000000000000000C1 /* Configuration.swift */; };
+		C4A0000000000000000000F2 /* FrameData.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A0000000000000000000F1 /* FrameData.swift */; };
 		C4D38B732D16EB3B00A311A6 /* macSpecApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4D38B722D16EB0F00A311A6 /* macSpecApp.swift */; };
+		C4FFE99A3012840D0009D31C /* FFTBand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4FFE9993012840D0009D31C /* FFTBand.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -23,9 +26,12 @@
 		266B81D31D47A7FD000261CE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		26C3E8101D4AA6F800AF5FED /* SpecView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SpecView.swift; sourceTree = "<group>"; };
 		279165D81E0366CA008EECF2 /* resources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = resources; path = macSpec/resources; sourceTree = "<group>"; };
-		C440AD922D1824B4001E6038 /* SpecData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpecData.swift; sourceTree = "<group>"; };
 		C47F62CA2D26F2A3009B4491 /* AppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppView.swift; sourceTree = "<group>"; };
+		C4A0000000000000000000A1 /* Processor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Processor.swift; sourceTree = "<group>"; };
+		C4A0000000000000000000C1 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
+		C4A0000000000000000000F1 /* FrameData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameData.swift; sourceTree = "<group>"; };
 		C4D38B722D16EB0F00A311A6 /* macSpecApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = macSpecApp.swift; sourceTree = "<group>"; };
+		C4FFE9993012840D0009D31C /* FFTBand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFTBand.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -59,7 +65,10 @@
 		266B81C91D47A7FC000261CE /* macSpec */ = {
 			isa = PBXGroup;
 			children = (
-				C440AD922D1824B4001E6038 /* SpecData.swift */,
+				C4FFE9993012840D0009D31C /* FFTBand.swift */,
+				C4A0000000000000000000C1 /* Configuration.swift */,
+				C4A0000000000000000000F1 /* FrameData.swift */,
+				C4A0000000000000000000A1 /* Processor.swift */,
 				2661E47B1D54AD1200061ED0 /* WaveView.swift */,
 				26C3E8101D4AA6F800AF5FED /* SpecView.swift */,
 				C47F62CA2D26F2A3009B4491 /* AppView.swift */,
@@ -98,7 +107,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastSwiftUpdateCheck = 0730;
-				LastUpgradeCheck = 1620;
+				LastUpgradeCheck = 2660;
 				ORGANIZATIONNAME = "Milko Daskalov";
 				TargetAttributes = {
 					266B81C61D47A7FC000261CE = {
@@ -143,8 +152,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				2661E47C1D54AD1200061ED0 /* WaveView.swift in Sources */,
-				C440AD932D1824B4001E6038 /* SpecData.swift in Sources */,
+				C4A0000000000000000000C2 /* Configuration.swift in Sources */,
+				C4A0000000000000000000F2 /* FrameData.swift in Sources */,
+				C4A0000000000000000000A2 /* Processor.swift in Sources */,
 				26C3E8111D4AA6F800AF5FED /* SpecView.swift in Sources */,
+				C4FFE99A3012840D0009D31C /* FFTBand.swift in Sources */,
 				C47F62CB2D26F2A3009B4491 /* AppView.swift in Sources */,
 				C4D38B732D16EB3B00A311A6 /* macSpecApp.swift in Sources */,
 			);
@@ -206,6 +218,7 @@
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -256,6 +269,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
@@ -272,6 +286,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
@@ -301,6 +316,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)",
