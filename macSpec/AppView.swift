@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import AppKit
+import QuartzCore
 
 
 struct AppView: View {
@@ -71,6 +73,74 @@ struct AppView: View {
         }
         .padding()
         .frame(minWidth: 650, minHeight: 400)
+        // Drive update() from the display's vsync, pinned to displayRefreshRate.
+        .background(DisplayLinkView(frameRate: configuration.displayRefreshRate) {
+            processor.update()
+        })
+    }
+}
+
+// Drives a per-frame callback from the display's vsync via CADisplayLink instead
+// of a free-running timer, so each update() lands in step with the compositor. On
+// macOS the link is created from the NSView it lives in, which is why this is a
+// view bridge: it follows the window across screens and stops firing when hidden.
+struct DisplayLinkView: NSViewRepresentable {
+    var frameRate: Double
+    var onFrame: () -> Void
+
+    func makeNSView(context: Context) -> DisplayLinkNSView {
+        DisplayLinkNSView(frameRate: frameRate, onFrame: onFrame)
+    }
+
+    func updateNSView(_ nsView: DisplayLinkNSView, context: Context) {
+        nsView.onFrame = onFrame
+        nsView.frameRate = frameRate
+    }
+}
+
+final class DisplayLinkNSView: NSView {
+    var onFrame: () -> Void
+    var frameRate: Double {
+        didSet { applyFrameRate() }
+    }
+    private var link: CADisplayLink?
+
+    init(frameRate: Double, onFrame: @escaping () -> Void) {
+        self.frameRate = frameRate
+        self.onFrame = onFrame
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    // The link belongs to the window the view lands in, so recreate it on every
+    // move (a screen change or a reopen) and drop it when the view leaves the
+    // hierarchy - a link with no window would just idle.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        link?.invalidate()
+        link = nil
+        guard window != nil else { return }
+        let link = displayLink(target: self, selector: #selector(tick))
+        self.link = link
+        applyFrameRate()
+        link.add(to: .main, forMode: .common)
+    }
+
+    // Pin the callback to a fixed rate. On a ProMotion panel this requests a
+    // steady rate rather than the adaptive 48-120Hz, so the frame-counted bar
+    // decay and peak hold keep their calibrated one-second-at-60-frames meaning.
+    private func applyFrameRate() {
+        let rate = Float(frameRate)
+        link?.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
+    }
+
+    @objc private func tick(_ sender: CADisplayLink) {
+        onFrame()
+    }
+
+    deinit {
+        link?.invalidate()
     }
 }
 
