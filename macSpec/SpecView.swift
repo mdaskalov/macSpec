@@ -13,40 +13,38 @@ struct SpecView: View {
     private let borderWidth: CGFloat = 1.5
 
     var body: some View {
-        GeometryReader { geometry in
-            let barsCount = CGFloat(frame.bars.count)
-            let barGap = geometry.size.width / barsCount / 10
+        Canvas { context, size in
+            let bars = frame.bars
+            let peaks = frame.peaks
+            let barsCount = CGFloat(bars.count)
+            let barGap = size.width / (barsCount + 1) / 10
+            let gapsWidth = (barsCount + 1) * barGap
+            let barWidth = (size.width - gapsWidth) / barsCount
+            let barsHeight = size.height - 2 * barGap
+            let xAdjust = barWidth + barGap
+            let minBarHeight = 1.0
+            var barPath = Path()
+            var peakPath = Path()
 
-            Canvas { context, size in
-                let bars = frame.bars
-                let peaks = frame.peaks
-                let gapsWidth = (barsCount - 1) * barGap
-                let barWidth = (size.width - gapsWidth) / barsCount
-                let xAdjust = barWidth + barGap
-                let minBarHeight = 1.0
-                var barPath = Path()
-                var peakPath = Path()
+            for bar in 0..<bars.count {
+                let x = barGap + CGFloat(bar) * xAdjust
+                let y = max(bars[bar] * barsHeight, minBarHeight)
+                let yPeak = peaks[bar] * barsHeight
 
-                for bar in 0..<bars.count {
-                    let x = CGFloat(bar) * xAdjust
-                    let y = max(bars[bar] * size.height, minBarHeight)
-                    let yPeak = peaks[bar] * size.height
+                barPath.addRect(CGRect(x: x, y: size.height - barGap - y, width: barWidth, height: y))
 
-                    barPath.addRect(CGRect(x: x, y: size.height - y, width: barWidth, height: y))
-
-                    if yPeak > y {
-                        peakPath.move(to: CGPoint(x: x, y: size.height - yPeak))
-                        peakPath.addLine(to: CGPoint(x: x + barWidth, y: size.height - yPeak))
-                    }
+                if yPeak > y {
+                    peakPath.move(to: CGPoint(x: x, y: size.height - barGap - yPeak))
+                    peakPath.addLine(to: CGPoint(x: x + barWidth, y: size.height - barGap - yPeak))
                 }
-
-                context.fill(barPath, with: .color(.yellow))
-                context.stroke(peakPath, with: .color(.red), lineWidth: 1)
             }
-            .padding(borderWidth + barGap)
-            .background(.black)
-            .border(Color(.specBorder), width: borderWidth)
+
+            context.fill(barPath, with: .color(.yellow))
+            context.stroke(peakPath, with: .color(.red), lineWidth: 1)
         }
+        .padding(borderWidth)
+        .background(.black)
+        .border(Color(.specBorder), width: borderWidth)
     }
 }
 
