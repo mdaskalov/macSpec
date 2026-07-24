@@ -61,8 +61,10 @@ final class Configuration: ObservableObject {
     // independent of samplesCount, which only sizes the waveform buffer.)
     let barsCount: Int = 160
 
-    // Display tick rate: the processor's update() (and with it the bar decay
-    // and peak hold, both counted in frames) runs this many times per second.
+    // Display tick rate: the CADisplayLink driving update() is pinned to this, so
+    // the bar decay and peak hold (both counted in frames) run this many times a
+    // second. 60 keeps those frame counts calibrated to real time; pinning also
+    // stops a ProMotion panel drifting update() around a variable 48-120Hz.
     let displayRefreshRate: Double = 60.0
 
     // @Published so that the readout next to the sliders re-renders as they

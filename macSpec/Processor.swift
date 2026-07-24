@@ -10,6 +10,7 @@ import Foundation
 import CoreAudio
 import AudioToolbox
 import Accelerate
+import os
 
 // Captures system audio, runs the FFT, mel-bins it into bars and eases them into
 // the frame at display rate. Reads every constant from `configuration`; writes
@@ -28,13 +29,21 @@ final class Processor: ObservableObject {
     // Hz -> bin layout, fixed once: the aggregate is pinned to a constant rate.
     private let barMappings: [BarBand]
 
-    private var inUpdate = false
-    private var displayTimer: DispatchSourceTimer?
+    // True while an FFT is in flight on analysisQueue. Set on main before the
+    // dispatch, cleared on analysisQueue the instant the FFT finishes -
+    // deliberately NOT after the main-thread publish. A CADisplayLink tick is a
+    // run-loop callback that can jump ahead of a main-queue block that is queued
+    // but not yet drained, so gating on the publish made the next tick see the
+    // analysis as still running and over-report overruns. Lock-guarded because
+    // main (set) and analysisQueue (clear) both touch it.
+    private let analysisInFlight = OSAllocatedUnfairLock(initialState: false)
+    private var isAnalyzing: Bool { analysisInFlight.withLock { $0 } }
+    private func setAnalyzing(_ value: Bool) { analysisInFlight.withLock { $0 = value } }
     // FFT + mel binning runs here, off the main thread, so a busy main thread
     // (SwiftUI layout, or the system under load) can't stall the analysis and
     // slow the display. Serial, so the single FFTBand is only ever touched by one
     // tick at a time; userInteractive because it feeds a real-time display.
-    // update() gates it with inUpdate so ticks never pile up, and publishes the
+    // update() gates it with analysisInFlight so ticks never pile up, publishing the
     // heights back on main.
     private let analysisQueue = DispatchQueue(label: "com.innersoft.macSpec.analysis", qos: .userInteractive)
     // The test-tone inputs behind the last refreshTestSpectrum(). update() re-runs
@@ -43,7 +52,7 @@ final class Processor: ObservableObject {
     private struct TestInputs: Equatable { var frequency: Double; var dbFloor: Float }
     private var lastTestInputs: TestInputs?
     // Held for the object's lifetime to opt out of App Nap, which would otherwise
-    // throttle and coalesce our timers once the app stops being frontmost.
+    // throttle and coalesce the display link once the app stops being frontmost.
     private var activityToken: NSObjectProtocol?
     // print() is synchronous main-thread I/O, so overrun logging is rate-limited.
     private var overrunCount = 0
@@ -61,7 +70,7 @@ final class Processor: ObservableObject {
         mElement: kAudioObjectPropertyElementMain
     )
 
-    // Handoff from the audio callback (audio rate) to the display timer (display
+    // Handoff from the audio callback (audio rate) to the display link (display
     // rate); each only ever holds the most recent value.
     private let latestChunkLock = NSLock()
     private var latestAudioChunk: [Float]?
@@ -80,7 +89,13 @@ final class Processor: ObservableObject {
             maxBin: band.maxBin
         )
 
-        startDisplayTimer()
+        // Opt out of App Nap so the display link keeps firing when the app is not
+        // frontmost - App Nap would otherwise throttle and coalesce it. The link
+        // itself is created and driven by the view layer (see DisplayLinkView).
+        activityToken = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep],
+            reason: "Real-time spectrum display"
+        )
 
         // Never in previews. Deferred off this runloop turn: init runs inside
         // SwiftUI's view construction, and starting must not publish from there.
@@ -143,8 +158,6 @@ final class Processor: ObservableObject {
     }
 
     deinit {
-        displayTimer?.cancel()
-        displayTimer = nil
         if let activityToken {
             ProcessInfo.processInfo.endActivity(activityToken)
         }
@@ -311,36 +324,16 @@ final class Processor: ObservableObject {
         let dbFloor = configuration.dbFloor
         let signal = makeTestSignal()
         let samples = signal.prefix(configuration.samplesCount).map { CGFloat($0) }
-        inUpdate = true
+        setAnalyzing(true)
         analysisQueue.async { [weak self] in
             guard let self else { return }
             let heights = self.spectrum(of: signal, dbFloor: dbFloor)
+            self.setAnalyzing(false)
             DispatchQueue.main.async {
-                self.inUpdate = false
                 guard self.configuration.isTest else { return }
                 self.frame.snap(samples: samples, heights: heights)
             }
         }
-    }
-
-    // Drives update() at display rate, decoupled from the audio callback rate. A
-    // DispatchSourceTimer (not a run-loop Timer) so it isn't coalesced and drifted
-    // slower over time; on the main queue with near-zero leeway.
-    private func startDisplayTimer() {
-        guard displayTimer == nil else { return }
-
-        activityToken = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiatedAllowingIdleSystemSleep],
-            reason: "Real-time spectrum display"
-        )
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: 1.0 / configuration.displayRefreshRate, leeway: .milliseconds(1))
-        timer.setEventHandler { [weak self] in
-            self?.update()
-        }
-        timer.resume()
-        displayTimer = timer
     }
 
     // Raw |X|^2 -> 0...1 bar height on a dB scale: dbFloor maps to 0, full-scale
@@ -405,7 +398,7 @@ final class Processor: ObservableObject {
             let inputs = TestInputs(frequency: configuration.testFrequency, dbFloor: configuration.dbFloor)
             // Skip while an analysis is still in flight: the input is left
             // unrecorded so the next free tick picks up the latest frequency.
-            if inputs != lastTestInputs && !inUpdate {
+            if inputs != lastTestInputs && !isAnalyzing {
                 lastTestInputs = inputs
                 refreshTestSpectrum()
             }
@@ -413,7 +406,7 @@ final class Processor: ObservableObject {
         }
         lastTestInputs = nil
 
-        guard !inUpdate else {
+        guard !isAnalyzing else {
             logOverrun()
             return
         }
@@ -438,15 +431,16 @@ final class Processor: ObservableObject {
         let barFrames = configuration.barFrames
         let peakFrames = Int(configuration.peakFrames)
 
-        // Run the FFT off main, then publish on main. inUpdate stays set across
-        // the whole round trip, so the next tick sees the analysis is still in
-        // flight and drops rather than queuing a second one behind it.
-        inUpdate = true
+        // Run the FFT off main, clear the flag the moment it finishes, then
+        // publish on main. Clearing before the main hop keeps the next tick's
+        // "still analyzing?" check honest even if the run loop hasn't drained the
+        // publish yet; the serial queue already stops two FFTs overlapping.
+        setAnalyzing(true)
         analysisQueue.async { [weak self] in
             guard let self else { return }
             let heights = self.spectrum(of: fftSource, dbFloor: dbFloor)
+            self.setAnalyzing(false)
             DispatchQueue.main.async {
-                self.inUpdate = false
                 guard !self.configuration.isTest else { return }
                 self.frame.ease(
                     samples: samples,
