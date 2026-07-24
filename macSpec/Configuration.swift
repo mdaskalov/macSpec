@@ -36,7 +36,7 @@ final class Configuration: ObservableObject {
     // the bars roughly proportional to the bins instead (0.65 bins wide at
     // 20Hz rising to 18.7 at 20kHz, against 0.04 to 37.6 for pure log), so one
     // 2048-point window serves the whole axis.
-    let minFrequency: Double = 20.0
+    let minFrequency: Double = 0.0
     let maxFrequency: Double = 20_000.0
     // Where mel bends from linear to logarithmic, and so the one knob that
     // controls the look: lower it to give the bass more of the display (more
@@ -102,7 +102,7 @@ final class Configuration: ObservableObject {
     // The frequency the tone sits at, in Hz. The slider binds to it directly and
     // the processor builds the sine straight from it; kept whether or not the
     // tone is showing so it can be read off while comparing against live audio.
-    @Published var testFrequency: Double = 20.0
+    @Published var testFrequency: Double = 0.0
 
     // Per display tick the sweep advances the tone by this, wrapping at
     // maxFrequency. 1.2Hz at 60fps is ~72Hz/s - a full-range sweep in ~4.5min.

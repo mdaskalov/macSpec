@@ -30,6 +30,13 @@ final class Processor: ObservableObject {
 
     private var inUpdate = false
     private var displayTimer: DispatchSourceTimer?
+    // FFT + mel binning runs here, off the main thread, so a busy main thread
+    // (SwiftUI layout, or the system under load) can't stall the analysis and
+    // slow the display. Serial, so the single FFTBand is only ever touched by one
+    // tick at a time; userInteractive because it feeds a real-time display.
+    // update() gates it with inUpdate so ticks never pile up, and publishes the
+    // heights back on main.
+    private let analysisQueue = DispatchQueue(label: "com.innersoft.macSpec.analysis", qos: .userInteractive)
     // The test-tone inputs behind the last refreshTestSpectrum(). update() re-runs
     // it whenever these move; cleared while live audio shows so re-entering test
     // mode always repaints. nil means "nothing analyzed since we left test mode".
@@ -301,10 +308,19 @@ final class Processor: ObservableObject {
     // Runs only when testFrequency changes (slider or sweep), not per display tick.
     // Bars/peaks are written directly so the display snaps to the true spectrum.
     private func refreshTestSpectrum() {
+        let dbFloor = configuration.dbFloor
         let signal = makeTestSignal()
         let samples = signal.prefix(configuration.samplesCount).map { CGFloat($0) }
-        let heights = spectrum(of: signal)
-        frame.snap(samples: samples, heights: heights)
+        inUpdate = true
+        analysisQueue.async { [weak self] in
+            guard let self else { return }
+            let heights = self.spectrum(of: signal, dbFloor: dbFloor)
+            DispatchQueue.main.async {
+                self.inUpdate = false
+                guard self.configuration.isTest else { return }
+                self.frame.snap(samples: samples, heights: heights)
+            }
+        }
     }
 
     // Drives update() at display rate, decoupled from the audio callback rate. A
@@ -329,8 +345,7 @@ final class Processor: ObservableObject {
 
     // Raw |X|^2 -> 0...1 bar height on a dB scale: dbFloor maps to 0, full-scale
     // to 1. This keeps quiet high-frequency content visible next to loud bass.
-    private func magnitudeToHeight(_ magnitude: Float, referenceMagnitude: Float) -> CGFloat {
-        let dbFloor = configuration.dbFloor
+    private func magnitudeToHeight(_ magnitude: Float, referenceMagnitude: Float, dbFloor: Float) -> CGFloat {
         let db = 10 * log10(max(magnitude / referenceMagnitude, 1e-10))
         let clamped = min(max(db, dbFloor), 0)
         return CGFloat((clamped - dbFloor) / -dbFloor)
@@ -338,7 +353,7 @@ final class Processor: ObservableObject {
 
     // Windows, transforms and mel-bins one buffer into barsCount heights. Pure:
     // both callers layer their own behaviour on top (audio eases, test snaps).
-    private func spectrum(of fftSource: [Float]) -> [CGFloat] {
+    private func spectrum(of fftSource: [Float], dbFloor: Float) -> [CGFloat] {
         band.analyze(fftSource)
 
         let magnitudes = band.magnitudes
@@ -363,7 +378,7 @@ final class Processor: ObservableObject {
                     magnitude = max(magnitude, magnitudes[bin])
                 }
             }
-            heights[i] = magnitudeToHeight(magnitude, referenceMagnitude: referenceMagnitude)
+            heights[i] = magnitudeToHeight(magnitude, referenceMagnitude: referenceMagnitude, dbFloor: dbFloor)
         }
         return heights
     }
@@ -388,7 +403,9 @@ final class Processor: ObservableObject {
             // dbFloor - or when the tone was just switched on (lastTestInputs is
             // nil, having been cleared while live audio was showing).
             let inputs = TestInputs(frequency: configuration.testFrequency, dbFloor: configuration.dbFloor)
-            if inputs != lastTestInputs {
+            // Skip while an analysis is still in flight: the input is left
+            // unrecorded so the next free tick picks up the latest frequency.
+            if inputs != lastTestInputs && !inUpdate {
                 lastTestInputs = inputs
                 refreshTestSpectrum()
             }
@@ -400,8 +417,6 @@ final class Processor: ObservableObject {
             logOverrun()
             return
         }
-        inUpdate = true
-        defer { inUpdate = false }
 
         latestChunkLock.lock()
         let chunk = latestAudioChunk
@@ -415,16 +430,31 @@ final class Processor: ObservableObject {
             captured += [Float](repeating: 0, count: samplesCount - captured.count)
         }
         let samples = captured.map { min(max(CGFloat($0), -1.0), 1.0) }
-
         // FFT reads the longer rolling buffer, falling back to the waveform chunk
-        // only before it fills.
-        let heights = spectrum(of: fftWindow ?? captured)
+        // only before it fills. Snapshot the config scalars here on main so the
+        // background analysis never reads the @Published values off-thread.
+        let fftSource = fftWindow ?? captured
+        let dbFloor = configuration.dbFloor
+        let barFrames = configuration.barFrames
+        let peakFrames = Int(configuration.peakFrames)
 
-        frame.ease(
-            samples: samples,
-            heights: heights,
-            barFrames: configuration.barFrames,
-            peakFrames: Int(configuration.peakFrames)
-        )
+        // Run the FFT off main, then publish on main. inUpdate stays set across
+        // the whole round trip, so the next tick sees the analysis is still in
+        // flight and drops rather than queuing a second one behind it.
+        inUpdate = true
+        analysisQueue.async { [weak self] in
+            guard let self else { return }
+            let heights = self.spectrum(of: fftSource, dbFloor: dbFloor)
+            DispatchQueue.main.async {
+                self.inUpdate = false
+                guard !self.configuration.isTest else { return }
+                self.frame.ease(
+                    samples: samples,
+                    heights: heights,
+                    barFrames: barFrames,
+                    peakFrames: peakFrames
+                )
+            }
+        }
     }
 }
