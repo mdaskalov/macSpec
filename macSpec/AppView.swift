@@ -99,6 +99,25 @@ struct DisplayLinkView: NSViewRepresentable {
 }
 
 final class DisplayLinkNSView: NSView {
+    // CADisplayLink retains its target, so targeting the view directly would make
+    // the link and the view own each other and deinit could never run. The proxy
+    // takes that strong reference instead and points back weakly.
+    private final class Proxy: NSObject {
+        weak var view: DisplayLinkNSView?
+
+        init(view: DisplayLinkNSView) {
+            self.view = view
+        }
+
+        @objc func tick(_ sender: CADisplayLink) {
+            guard let view else {
+                sender.invalidate()
+                return
+            }
+            view.onFrame()
+        }
+    }
+
     var onFrame: () -> Void
     var frameRate: Double {
         didSet { applyFrameRate() }
@@ -121,7 +140,7 @@ final class DisplayLinkNSView: NSView {
         link?.invalidate()
         link = nil
         guard window != nil else { return }
-        let link = displayLink(target: self, selector: #selector(tick))
+        let link = displayLink(target: Proxy(view: self), selector: #selector(Proxy.tick))
         self.link = link
         applyFrameRate()
         link.add(to: .main, forMode: .common)
@@ -132,11 +151,7 @@ final class DisplayLinkNSView: NSView {
     // decay and peak hold keep their calibrated one-second-at-60-frames meaning.
     private func applyFrameRate() {
         let rate = Float(frameRate)
-        link?.preferredFrameRateRange = CAFrameRateRange(minimum: rate, maximum: rate, preferred: rate)
-    }
-
-    @objc private func tick(_ sender: CADisplayLink) {
-        onFrame()
+        link?.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: rate)
     }
 
     deinit {
