@@ -85,14 +85,27 @@ final class Processor {
     // what tells the easing how much audio time the frame it is about to draw
     // really covers. Guarded by latestChunkLock alongside the chunk itself.
     private var pendingChunkCount = 0
-    // Longer rolling buffer, FFT only: it needs far more history than the
-    // waveform chunk to resolve bass. Written only on tapQueue.
-    private var fftWindowBuffer: [Float] = []
-    private var latestFFTWindow: [Float]?
+    // Longer rolling history, FFT only: it needs far more of it than the waveform
+    // chunk to resolve bass.
+    //
+    // A fixed ring rather than a growing array whose head gets trimmed. The old
+    // shape paid twice per audio callback: removeFirst memmoved the surviving
+    // 2048 samples down, and publishing the buffer to latestFFTWindow left it
+    // multiply-referenced so the next append copied all of it again. Here the tap
+    // writes in place and update() linearises a copy only on the ticks that
+    // actually run an FFT.
+    //
+    // Written on tapQueue, read on main, both under latestChunkLock.
+    private var fftRing: [Float]
+    // Where the next sample goes, and how much has ever been written - capped at
+    // capacity, so it doubles as "has the ring filled yet".
+    private var fftRingWrite = 0
+    private var fftRingFilled = 0
 
     init(configuration: Configuration) {
         self.configuration = configuration
         band = FFTBand(size: configuration.fftSize)
+        fftRing = [Float](repeating: 0, count: configuration.fftSize)
         frame = FrameData(samplesCount: configuration.samplesCount, barsCount: configuration.barsCount)
         barMappings = Processor.computeBarMappings(
             configuration: configuration,
@@ -314,13 +327,62 @@ final class Processor {
             latestChunkLock.unlock()
         }
 
-        fftWindowBuffer.append(contentsOf: downmixed)
-        if fftWindowBuffer.count > band.size {
-            fftWindowBuffer.removeFirst(fftWindowBuffer.count - band.size)
-        }
         latestChunkLock.lock()
-        latestFFTWindow = fftWindowBuffer
+        writeToFFTRing(downmixed)
         latestChunkLock.unlock()
+    }
+
+    // Runs on tapQueue with latestChunkLock held. Copies straight into the ring,
+    // wrapping once at the end - no allocation and no shifting of what is already
+    // there.
+    private func writeToFFTRing(_ samples: [Float]) {
+        let capacity = fftRing.count
+        guard capacity > 0, !samples.isEmpty else { return }
+        // A buffer longer than the whole window would wrap over its own start, so
+        // only its tail can survive. Skip the rest rather than write it twice.
+        let start = max(0, samples.count - capacity)
+        let count = samples.count - start
+
+        samples.withUnsafeBufferPointer { source in
+            fftRing.withUnsafeMutableBufferPointer { ring in
+                let head = min(count, capacity - fftRingWrite)
+                ring.baseAddress!.advanced(by: fftRingWrite)
+                    .update(from: source.baseAddress!.advanced(by: start), count: head)
+                if head < count {
+                    ring.baseAddress!
+                        .update(from: source.baseAddress!.advanced(by: start + head), count: count - head)
+                }
+            }
+        }
+        fftRingWrite = (fftRingWrite + count) % capacity
+        fftRingFilled = min(fftRingFilled + count, capacity)
+    }
+
+    // Runs on main with latestChunkLock held. Hands back the history oldest-first,
+    // which is the only point anything gets copied - once per analysed tick rather
+    // than once per audio callback. nil until the tap has delivered something.
+    //
+    // The lock spans an 8KB copy, so the tap can block behind it for on the order
+    // of a microsecond. That is well inside the slack of a dispatch-queue IOProc.
+    private func readFFTWindow() -> [Float]? {
+        guard fftRingFilled > 0 else { return nil }
+        let capacity = fftRing.count
+        // Before the ring fills, the oldest sample is at 0 and the write cursor is
+        // just the count; after it fills, the cursor is the oldest sample.
+        let oldest = fftRingFilled == capacity ? fftRingWrite : 0
+        var window = [Float](repeating: 0, count: fftRingFilled)
+        window.withUnsafeMutableBufferPointer { destination in
+            fftRing.withUnsafeBufferPointer { ring in
+                let head = min(fftRingFilled, capacity - oldest)
+                destination.baseAddress!
+                    .update(from: ring.baseAddress!.advanced(by: oldest), count: head)
+                if head < fftRingFilled {
+                    destination.baseAddress!.advanced(by: head)
+                        .update(from: ring.baseAddress!, count: fftRingFilled - head)
+                }
+            }
+        }
+        return window
     }
 
     // Static sine at testFrequency, phase 0, filling the whole window - no rolling
@@ -444,7 +506,7 @@ final class Processor {
 
         latestChunkLock.lock()
         let chunk = latestAudioChunk
-        let fftWindow = latestFFTWindow
+        let fftWindow = readFFTWindow()
         let chunkCount = pendingChunkCount
         latestAudioChunk = nil
         pendingChunkCount = 0
