@@ -41,28 +41,24 @@ struct AppView: View {
                             .buttonBorderShape(.circle)
                             .disabled(!configuration.isTest)
                             Slider(value: $configuration.testFrequency, in: configuration.minFrequency...configuration.maxFrequency)
-                            Text("\(configuration.testFrequency, format: .number.precision(.fractionLength(1))) Hz")
+                            Text("\(configuration.testFrequency, format: .number.precision(.fractionLength(2))) Hz")
                                 .lineLimit(1)
-                                .monospacedDigit()
                         }
                         .opacity(configuration.isTest ? 1 : 0)
                     }
-                    Grid(alignment: .leading) {
+                    let columns = [GridItem(.fixed(130)), GridItem(.flexible())]
+                    LazyVGrid(columns: columns, alignment: .leading) {
                         GridRow {
-                            Text("Floor")
+                            Text("Floor: \(configuration.dbFloor, format: .number.precision(.fractionLength(1))) dB")
                             Slider(value: $configuration.dbFloor, in: -90...(0))
-                            Text("\(configuration.dbFloor, format: .number.precision(.fractionLength(1))) dB")
-                                .gridColumnAlignment(.trailing)
                         }
                         GridRow {
-                            Text("Bar Decay")
-                            Slider(value: $configuration.barFrames, in: 1...120)
-                            Text("\(configuration.barFrames, format: .number.precision(.fractionLength(0)))")
+                            Text("Bar Decay: \(configuration.barDecayMs, format: .number.precision(.fractionLength(0))) ms")
+                            Slider(value: $configuration.barDecayMs, in: 10...1000)
                         }
                         GridRow {
-                            Text("Peak Hold")
-                            Slider(value: $configuration.peakFrames, in: 0...200)
-                            Text("\(configuration.peakFrames, format: .number.precision(.fractionLength(0)))")
+                            Text("Peak Hold: \(configuration.peakHoldMs, format: .number.precision(.fractionLength(0))) ms")
+                            Slider(value: $configuration.peakHoldMs, in: 0...2000)
                         }
                     }
                 }
@@ -147,8 +143,9 @@ final class DisplayLinkNSView: NSView {
     }
 
     // Pin the callback to a fixed rate. On a ProMotion panel this requests a
-    // steady rate rather than the adaptive 48-120Hz, so the frame-counted bar
-    // decay and peak hold keep their calibrated one-second-at-60-frames meaning.
+    // steady rate rather than the adaptive 48-120Hz, which keeps the tick fast
+    // enough to pick up every audio chunk as it lands - the decay and hold are
+    // timed off the audio, so a slower rate would only cost smoothness.
     private func applyFrameRate() {
         let rate = Float(frameRate)
         link?.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: rate)

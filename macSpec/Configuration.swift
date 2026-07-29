@@ -12,6 +12,9 @@ import Foundation
 // reads what it needs from here; the views bind the sliders to the @Published
 // values.
 final class Configuration: ObservableObject {
+    // Waveform chunk length, and with it the display's time quantum: the
+    // processor eases exactly one chunk into the frame per tick, so this is how
+    // much audio one on-screen step covers.
     let samplesCount: Int = 400
 
     // One resolution for the whole display. 2048 is ~23Hz bins and a 43ms
@@ -56,15 +59,23 @@ final class Configuration: ObservableObject {
     // at. 48kHz pairs with the 2048-point window for ~23Hz bins.
     let sampleRate: Double = 48_000.0
 
+    // How much audio one waveform chunk holds, in milliseconds - 8.3ms at 400
+    // samples and 48kHz. This, not the display refresh rate, is what the decay
+    // and hold below are measured in: one eased frame advances the display by
+    // exactly one chunk of audio.
+    var chunkMilliseconds: Double { 1000.0 * Double(samplesCount) / sampleRate }
+
     // Free to choose: mel spacing keeps bar width tracking bin width, so this
     // is a display-density decision and nothing else depends on it. (It is
-    // independent of samplesCount, which only sizes the waveform buffer.)
+    // independent of samplesCount, which sizes the waveform buffer and sets the
+    // tick duration.)
     let barsCount: Int = 160
 
-    // Display tick rate: the CADisplayLink driving update() is pinned to this, so
-    // the bar decay and peak hold (both counted in frames) run this many times a
-    // second. 60 keeps those frame counts calibrated to real time; pinning also
-    // stops a ProMotion panel drifting update() around a variable 48-120Hz.
+    // Display tick rate: the CADisplayLink driving update() is pinned to this.
+    // It only sets how often the processor looks for new audio, not how fast the
+    // bars fall - that is timed off the audio itself - so this just wants to be
+    // at least the chunk rate (120/s at 400 samples) to avoid dropping chunks.
+    // Pinning also stops a ProMotion panel drifting around a variable 48-120Hz.
     let displayRefreshRate: Double = 120.0
 
     // @Published so that the readout next to the sliders re-renders as they
@@ -73,12 +84,17 @@ final class Configuration: ObservableObject {
     // number it was first drawn with. Only AppView observes these - SpecView
     // watches `frame` alone - so this costs a control redraw during a drag and
     // nothing per audio frame.
-    // Both are counted in display frames. barFrames is how long a full-height
-    // bar takes to fall to zero: it drops at a constant 1/barFrames per frame,
-    // so 60 frames is a one-second fall at a 60Hz display rate. peakFrames is
-    // how long a peak marker is held before it starts following the bar down.
-    @Published var barFrames: CGFloat = 12.0
-    @Published var peakFrames: CGFloat = 60.0
+    // Both are milliseconds of audio, not display frames. barDecayMilliseconds
+    // is how long a full-height bar takes to fall to zero (it falls at a
+    // constant rate, so half height takes half as long); peakHoldMilliseconds
+    // is how long a peak marker is held before it starts following the bar down.
+    //
+    // Timed against chunkMilliseconds rather than the refresh rate because the
+    // frame counts they replaced only meant a fixed span of time at one
+    // particular rate: the same 12 frames was 200ms at 60Hz and 100ms at 120Hz,
+    // so the display visibly changed character with the panel it ran on.
+    @Published var barDecayMs: Double = 100.0
+    @Published var peakHoldMs: Double = 500.0
     // Unlike the other two this also changes the analysis, not just how the
     // next frame decays: it is the dB range the bars are drawn against. While
     // the test tone shows, the processor re-analyzes it when this moves so the

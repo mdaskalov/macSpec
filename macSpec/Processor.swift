@@ -74,6 +74,12 @@ final class Processor: ObservableObject {
     // rate); each only ever holds the most recent value.
     private let latestChunkLock = NSLock()
     private var latestAudioChunk: [Float]?
+    // Chunks produced since update() last took one. Normally 1 - the display is
+    // pinned fast enough to keep up - but if a tick is late or the panel is
+    // slower than the chunk rate, the skipped chunks still happened, so this is
+    // what tells the easing how much audio time the frame it is about to draw
+    // really covers. Guarded by latestChunkLock alongside the chunk itself.
+    private var pendingChunkCount = 0
     // Longer rolling buffer, FFT only: it needs far more history than the
     // waveform chunk to resolve bass. Written only on tapQueue.
     private var fftWindowBuffer: [Float] = []
@@ -299,6 +305,7 @@ final class Processor: ObservableObject {
             pending.removeFirst(end)
             latestChunkLock.lock()
             latestAudioChunk = chunk
+            pendingChunkCount += wholeChunks
             latestChunkLock.unlock()
         }
 
@@ -414,7 +421,9 @@ final class Processor: ObservableObject {
         latestChunkLock.lock()
         let chunk = latestAudioChunk
         let fftWindow = latestFFTWindow
+        let chunkCount = pendingChunkCount
         latestAudioChunk = nil
+        pendingChunkCount = 0
         latestChunkLock.unlock()
 
         let samplesCount = configuration.samplesCount
@@ -428,8 +437,12 @@ final class Processor: ObservableObject {
         // background analysis never reads the @Published values off-thread.
         let fftSource = fftWindow ?? captured
         let dbFloor = configuration.dbFloor
-        let barFrames = configuration.barFrames
-        let peakFrames = Int(configuration.peakFrames)
+        let barDecay = configuration.barDecayMs
+        let peakHold = configuration.peakHoldMs
+        // Audio time this frame stands for: one chunk per tick in the steady
+        // state, more if ticks were missed. Decay and hold are scaled by it, so
+        // they run at their configured speed on any display refresh rate.
+        let elapsed = Double(max(chunkCount, 1)) * configuration.chunkMilliseconds
 
         // Run the FFT off main, clear the flag the moment it finishes, then
         // publish on main. Clearing before the main hop keeps the next tick's
@@ -445,8 +458,9 @@ final class Processor: ObservableObject {
                 self.frame.ease(
                     samples: samples,
                     heights: heights,
-                    barFrames: barFrames,
-                    peakFrames: peakFrames
+                    elapsed: elapsed,
+                    barDecay: barDecay,
+                    peakHold: peakHold
                 )
             }
         }
