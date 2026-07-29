@@ -15,7 +15,7 @@ import os
 // Captures system audio, runs the FFT, mel-bins it into bars and eases them into
 // the frame at display rate. Reads every constant from `configuration`; writes
 // only into `frame`.
-final class Processor: ObservableObject {
+final class Processor {
     // True while Xcode renders a SwiftUI preview, where sampling would prompt for
     // audio permission on every refresh - so the tap only runs in the real app.
     static var isRunningForPreviews: Bool {
@@ -56,7 +56,12 @@ final class Processor: ObservableObject {
     private var activityToken: NSObjectProtocol?
     // print() is synchronous main-thread I/O, so overrun logging is rate-limited.
     private var overrunCount = 0
-    private var lastOverrunLog: CFAbsoluteTime = 0
+    // Live ticks seen since the window opened, so a count can be read against the
+    // number of chances it had to happen.
+    private var liveTickCount = 0
+    // nil until the first overrun opens a window. Seeding this to 0 instead made
+    // the very first overrun compare against the epoch and report immediately.
+    private var overrunWindowStart: CFAbsoluteTime?
 
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
@@ -383,13 +388,31 @@ final class Processor: ObservableObject {
         return heights
     }
 
+    // Reports a real rate over the interval that actually elapsed. The previous
+    // version printed the accumulated count whenever at least a second had passed
+    // and labelled it "per second", so overruns that were seconds or minutes apart
+    // still read as a per-second rate - which made an occasional hiccup and a
+    // genuine regression look identical.
+    //
+    // The window opens on the first overrun rather than at startup, so the tick
+    // count is the number of chances this rate was measured over.
     private func logOverrun() {
         overrunCount += 1
         let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastOverrunLog >= 1.0 else { return }
-        print("\(overrunCount) overrun(s) per second")
+        guard let windowStart = overrunWindowStart else {
+            overrunWindowStart = now
+            liveTickCount = 0
+            return
+        }
+        let elapsed = now - windowStart
+        guard elapsed >= 1.0 else { return }
+        print(String(
+            format: "%.2f overrun(s)/s - %d of %d live ticks over %.1fs",
+            Double(overrunCount) / elapsed, overrunCount, liveTickCount, elapsed
+        ))
         overrunCount = 0
-        lastOverrunLog = now
+        liveTickCount = 0
+        overrunWindowStart = now
     }
 
     // Display tick. Only live audio needs per-frame work; the test tone is static,
@@ -412,6 +435,7 @@ final class Processor: ObservableObject {
             return
         }
         lastTestInputs = nil
+        liveTickCount += 1
 
         guard !isAnalyzing else {
             logOverrun()

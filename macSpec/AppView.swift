@@ -11,13 +11,28 @@ import QuartzCore
 
 
 struct AppView: View {
-    @StateObject private var configuration: Configuration
-    @StateObject private var processor: Processor
+    // @State, not @StateObject: Processor publishes nothing, so this is lifetime
+    // ownership only.
+    @State private var processor: Processor
+
+    // Reached through the processor rather than stored alongside it, and
+    // deliberately unobserved.
+    //
+    // Unobserved because @StateObject/@ObservedObject subscribe to the whole
+    // object: any slider or sweep step would invalidate this entire body and
+    // rebuild WaveView, SpecView and DisplayLinkView with it. This body reads
+    // only displayRefreshRate, a let that never changes, so it has no reason to
+    // redraw at all - the two control views below observe the configuration and
+    // absorb those updates themselves.
+    //
+    // Reached through the processor because @State's initial value is built on
+    // every init while only the first one is kept. A stored property captured in
+    // init() would therefore bind to a discarded Configuration if AppView is ever
+    // reconstructed; going through the surviving Processor cannot drift.
+    private var configuration: Configuration { processor.configuration }
 
     init() {
-        let configuration = Configuration()
-        _configuration = StateObject(wrappedValue: configuration)
-        _processor = StateObject(wrappedValue: Processor(configuration: configuration))
+        _processor = State(initialValue: Processor(configuration: Configuration()))
     }
 
     var body: some View {
@@ -27,40 +42,8 @@ struct AppView: View {
                     .aspectRatio(1.6, contentMode: .fit)
                     .frame(maxHeight: 150)
                 VStack(alignment: .leading) {
-                    HStack {
-                        Toggle("Test", isOn: $configuration.isTest)
-                            .toggleStyle(.button)
-
-                        HStack {
-                            Toggle(isOn: $configuration.isAnimating) {
-                                Image(systemName: configuration.isAnimating ? "pause.fill" : "play.fill")
-                                    .imageScale(.small)
-                                    .padding(3)
-                            }
-                            .toggleStyle(.button)
-                            .buttonBorderShape(.circle)
-                            .disabled(!configuration.isTest)
-                            Slider(value: $configuration.testFrequency, in: configuration.minFrequency...configuration.maxFrequency)
-                            Text("\(configuration.testFrequency, format: .number.precision(.fractionLength(2))) Hz")
-                                .lineLimit(1)
-                        }
-                        .opacity(configuration.isTest ? 1 : 0)
-                    }
-                    let columns = [GridItem(.fixed(130)), GridItem(.flexible())]
-                    LazyVGrid(columns: columns, alignment: .leading) {
-                        GridRow {
-                            Text("Floor: \(configuration.dbFloor, format: .number.precision(.fractionLength(1))) dB")
-                            Slider(value: $configuration.dbFloor, in: -90...(0))
-                        }
-                        GridRow {
-                            Text("Bar Decay: \(configuration.barDecayMs, format: .number.precision(.fractionLength(0))) ms")
-                            Slider(value: $configuration.barDecayMs, in: 10...1000)
-                        }
-                        GridRow {
-                            Text("Peak Hold: \(configuration.peakHoldMs, format: .number.precision(.fractionLength(0))) ms")
-                            Slider(value: $configuration.peakHoldMs, in: 0...2000)
-                        }
-                    }
+                    TestToneControls(configuration: configuration)
+                    DisplaySettings(configuration: configuration)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -76,12 +59,67 @@ struct AppView: View {
     }
 }
 
+// The test tone row. While the sweep runs it is testFrequency that moves, once
+// per tick, and both the slider position and the Hz readout have to follow it.
+// Split out so that redraw lands here instead of on the whole window.
+private struct TestToneControls: View {
+    @ObservedObject var configuration: Configuration
+
+    var body: some View {
+        HStack {
+            Toggle("Test", isOn: $configuration.isTest)
+                .toggleStyle(.button)
+
+            HStack {
+                Toggle(isOn: $configuration.isAnimating) {
+                    Image(systemName: configuration.isAnimating ? "pause.fill" : "play.fill")
+                        .imageScale(.small)
+                        .padding(3)
+                }
+                .toggleStyle(.button)
+                .buttonBorderShape(.circle)
+                .disabled(!configuration.isTest)
+                Slider(value: $configuration.testFrequency, in: configuration.minFrequency...configuration.maxFrequency)
+                Text("\(configuration.testFrequency, format: .number.precision(.fractionLength(2))) Hz")
+                    .lineLimit(1)
+            }
+            .opacity(configuration.isTest ? 1 : 0)
+        }
+    }
+}
+
+// The three tunables. Redraws while any of them is being dragged - and, because
+// ObservableObject notifies per object rather than per property, also while the
+// sweep runs. Still far cheaper than redrawing the window.
+private struct DisplaySettings: View {
+    @ObservedObject var configuration: Configuration
+
+    private let columns = [GridItem(.fixed(130)), GridItem(.flexible())]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading) {
+            GridRow {
+                Text("Floor: \(configuration.dbFloor, format: .number.precision(.fractionLength(1))) dB")
+                Slider(value: $configuration.dbFloor, in: -90...(0))
+            }
+            GridRow {
+                Text("Bar Decay: \(configuration.barDecayMs, format: .number.precision(.fractionLength(0))) ms")
+                Slider(value: $configuration.barDecayMs, in: 10...1000)
+            }
+            GridRow {
+                Text("Peak Hold: \(configuration.peakHoldMs, format: .number.precision(.fractionLength(0))) ms")
+                Slider(value: $configuration.peakHoldMs, in: 0...2000)
+            }
+        }
+    }
+}
+
 // Drives a per-frame callback from the display's vsync via CADisplayLink instead
 // of a free-running timer, so each update() lands in step with the compositor. On
 // macOS the link is created from the NSView it lives in, which is why this is a
 // view bridge: it follows the window across screens and stops firing when hidden.
 struct DisplayLinkView: NSViewRepresentable {
-    var frameRate: Double
+    var frameRate: Float
     var onFrame: () -> Void
 
     func makeNSView(context: Context) -> DisplayLinkNSView {
@@ -90,7 +128,12 @@ struct DisplayLinkView: NSViewRepresentable {
 
     func updateNSView(_ nsView: DisplayLinkNSView, context: Context) {
         nsView.onFrame = onFrame
-        nsView.frameRate = frameRate
+        // This runs on every AppView body pass, and during a test sweep that is
+        // once per display tick. Only assign on a real change, so the rate the
+        // link is already running at is not rewritten 120 times a second.
+        if nsView.frameRate != frameRate {
+            nsView.frameRate = frameRate
+        }
     }
 }
 
@@ -115,12 +158,12 @@ final class DisplayLinkNSView: NSView {
     }
 
     var onFrame: () -> Void
-    var frameRate: Double {
+    var frameRate: Float {
         didSet { applyFrameRate() }
     }
     private var link: CADisplayLink?
 
-    init(frameRate: Double, onFrame: @escaping () -> Void) {
+    init(frameRate: Float, onFrame: @escaping () -> Void) {
         self.frameRate = frameRate
         self.onFrame = onFrame
         super.init(frame: .zero)
@@ -147,8 +190,7 @@ final class DisplayLinkNSView: NSView {
     // enough to pick up every audio chunk as it lands - the decay and hold are
     // timed off the audio, so a slower rate would only cost smoothness.
     private func applyFrameRate() {
-        let rate = Float(frameRate)
-        link?.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: rate)
+        link?.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: frameRate)
     }
 
     deinit {

@@ -76,7 +76,7 @@ final class Configuration: ObservableObject {
     // bars fall - that is timed off the audio itself - so this just wants to be
     // at least the chunk rate (120/s at 400 samples) to avoid dropping chunks.
     // Pinning also stops a ProMotion panel drifting around a variable 48-120Hz.
-    let displayRefreshRate: Double = 120.0
+    let displayRefreshRate: Float = 120.0
 
     // @Published so that the readout next to the sliders re-renders as they
     // move. A plain var still drives the Slider (the binding writes it), but
