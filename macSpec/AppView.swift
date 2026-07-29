@@ -103,14 +103,37 @@ private struct DisplaySettings: View {
                 Slider(value: $configuration.dbFloor, in: -90...(0))
             }
             GridRow {
-                Text("Bar Decay: \(configuration.barDecayMs, format: .number.precision(.fractionLength(0))) ms")
+                DurationText("Bar Decay", milliseconds: configuration.barDecayMs)
                 Slider(value: $configuration.barDecayMs, in: 10...1000)
             }
             GridRow {
-                Text("Peak Hold: \(configuration.peakHoldMs, format: .number.precision(.fractionLength(0))) ms")
+                DurationText("Peak Hold", milliseconds: configuration.peakHoldMs)
                 Slider(value: $configuration.peakHoldMs, in: 0...2000)
             }
         }
+    }
+}
+
+// Readout for millisecond sliders. Whole milliseconds while the value
+// stays under a second, then seconds with at most two decimal
+private struct DurationText: View {
+    let label: String
+    let milliseconds: Double
+
+    init(_ label: String, milliseconds: Double) {
+        self.label = label
+        self.milliseconds = milliseconds
+    }
+
+    var body: some View {
+        Text("\(label): \(formatted)")
+            .lineLimit(1)
+    }
+
+    private var formatted: String {
+        milliseconds < 1000
+            ? "\(milliseconds.formatted(.number.precision(.fractionLength(0)))) ms"
+            : "\((milliseconds / 1000).formatted(.number.precision(.fractionLength(0...2)))) s"
     }
 }
 
