@@ -65,7 +65,7 @@ final class Configuration: ObservableObject {
     // the bar decay and peak hold (both counted in frames) run this many times a
     // second. 60 keeps those frame counts calibrated to real time; pinning also
     // stops a ProMotion panel drifting update() around a variable 48-120Hz.
-    let displayRefreshRate: Double = 60.0
+    let displayRefreshRate: Double = 120.0
 
     // @Published so that the readout next to the sliders re-renders as they
     // move. A plain var still drives the Slider (the binding writes it), but
