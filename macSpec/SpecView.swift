@@ -10,7 +10,7 @@ import SwiftUI
 struct SpecView: View {
     @ObservedObject var frame: FrameData
 
-    private let borderWidth: CGFloat = 1.5
+    private let borderWidth: CGFloat = 1.0
 
     var body: some View {
         Canvas { context, size in
