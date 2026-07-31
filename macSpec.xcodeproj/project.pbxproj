@@ -11,6 +11,7 @@
 		266B81CF1D47A7FD000261CE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 266B81CE1D47A7FD000261CE /* Assets.xcassets */; };
 		26C3E8111D4AA6F800AF5FED /* SpecView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26C3E8101D4AA6F800AF5FED /* SpecView.swift */; };
 		279165D91E0366CA008EECF2 /* resources in Resources */ = {isa = PBXBuildFile; fileRef = 279165D81E0366CA008EECF2 /* resources */; };
+		C42CFD83301D0626009450B3 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42CFD82301D0626009450B3 /* Extensions.swift */; };
 		C47F62CB2D26F2A3009B4491 /* AppView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47F62CA2D26F2A3009B4491 /* AppView.swift */; };
 		C4A0000000000000000000A2 /* Processor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A0000000000000000000A1 /* Processor.swift */; };
 		C4A0000000000000000000C2 /* Configuration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4A0000000000000000000C1 /* Configuration.swift */; };
@@ -26,6 +27,7 @@
 		266B81D31D47A7FD000261CE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		26C3E8101D4AA6F800AF5FED /* SpecView.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SpecView.swift; sourceTree = "<group>"; };
 		279165D81E0366CA008EECF2 /* resources */ = {isa = PBXFileReference; lastKnownFileType = folder; name = resources; path = macSpec/resources; sourceTree = "<group>"; };
+		C42CFD82301D0626009450B3 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
 		C47F62CA2D26F2A3009B4491 /* AppView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppView.swift; sourceTree = "<group>"; };
 		C4A0000000000000000000A1 /* Processor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Processor.swift; sourceTree = "<group>"; };
 		C4A0000000000000000000C1 /* Configuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Configuration.swift; sourceTree = "<group>"; };
@@ -65,6 +67,7 @@
 		266B81C91D47A7FC000261CE /* macSpec */ = {
 			isa = PBXGroup;
 			children = (
+				C42CFD82301D0626009450B3 /* Extensions.swift */,
 				C4FFE9993012840D0009D31C /* FFTBand.swift */,
 				C4A0000000000000000000C1 /* Configuration.swift */,
 				C4A0000000000000000000F1 /* FrameData.swift */,
@@ -158,6 +161,7 @@
 				26C3E8111D4AA6F800AF5FED /* SpecView.swift in Sources */,
 				C4FFE99A3012840D0009D31C /* FFTBand.swift in Sources */,
 				C47F62CB2D26F2A3009B4491 /* AppView.swift in Sources */,
+				C42CFD83301D0626009450B3 /* Extensions.swift in Sources */,
 				C4D38B732D16EB3B00A311A6 /* macSpecApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

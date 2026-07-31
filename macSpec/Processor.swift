@@ -6,11 +6,8 @@
 //  Copyright © 2024 Milko Daskalov. All rights reserved.
 //
 
-import Foundation
-import CoreAudio
 import AudioToolbox
 import Accelerate
-import os
 
 // Captures system audio, runs the FFT, mel-bins it into bars and eases them into
 // the frame at display rate. Reads every constant from `configuration`; writes

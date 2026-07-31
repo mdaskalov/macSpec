@@ -6,9 +6,6 @@
 //  Copyright © 2026 Milko Daskalov. All rights reserved.
 //
 
-import Foundation
-import CoreAudio
-import AudioToolbox
 import Accelerate
 
 // Owns one FFT's setup, window and output magnitudes. Caching the window here

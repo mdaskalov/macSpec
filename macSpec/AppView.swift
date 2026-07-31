@@ -6,26 +6,6 @@
 //
 
 import SwiftUI
-import AppKit
-import QuartzCore
-
-extension Double {
-    var noFraction: String {
-        self.formatted(.number.precision(.fractionLength(0)))
-    }
-    var withFraction: String {
-        self.formatted(.number.precision(.fractionLength(0...2)))
-    }
-    var scaled: String {
-        self < 1000 ? self.noFraction : (self / 1000).withFraction
-    }
-    var inMs: String {
-        self.scaled.appending(self < 1000 ? " ms" :" s")
-    }
-    var inHz: String {
-        self.scaled.appending(self < 1000 ? " Hz" :" kHz")
-    }
-}
 
 struct AppView: View {
     // @State, not @StateObject: Processor publishes nothing, so this is lifetime
@@ -72,8 +52,6 @@ struct AppView: View {
 
 private struct DisplaySettings: View {
     @ObservedObject var configuration: Configuration
-
-    private let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
         Grid(alignment: .leading) {
