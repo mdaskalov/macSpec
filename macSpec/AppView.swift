@@ -52,10 +52,7 @@ struct AppView: View {
         }
         .padding()
         .frame(minWidth: 650, minHeight: 400)
-        // Drive update() from the display's vsync, pinned to displayRefreshRate.
-        .background(DisplayLinkView(frameRate: configuration.displayRefreshRate) {
-            processor.update()
-        })
+        .background(DisplayLinkView(frameRate: configuration.displayRefreshRate, processor: processor))
     }
 }
 
@@ -141,16 +138,15 @@ private struct DurationText: View {
 // of a free-running timer, so each update() lands in step with the compositor. On
 // macOS the link is created from the NSView it lives in, which is why this is a
 // view bridge: it follows the window across screens and stops firing when hidden.
-struct DisplayLinkView: NSViewRepresentable {
+private struct DisplayLinkView: NSViewRepresentable {
     var frameRate: Float
-    var onFrame: () -> Void
+    var processor: Processor
 
     func makeNSView(context: Context) -> DisplayLinkNSView {
-        DisplayLinkNSView(frameRate: frameRate, onFrame: onFrame)
+        DisplayLinkNSView(frameRate: frameRate, processor: processor)
     }
 
     func updateNSView(_ nsView: DisplayLinkNSView, context: Context) {
-        nsView.onFrame = onFrame
         // This runs on every AppView body pass, and during a test sweep that is
         // once per display tick. Only assign on a real change, so the rate the
         // link is already running at is not rewritten 120 times a second.
@@ -160,7 +156,7 @@ struct DisplayLinkView: NSViewRepresentable {
     }
 }
 
-final class DisplayLinkNSView: NSView {
+private final class DisplayLinkNSView: NSView {
     // CADisplayLink retains its target, so targeting the view directly would make
     // the link and the view own each other and deinit could never run. The proxy
     // takes that strong reference instead and points back weakly.
@@ -171,24 +167,26 @@ final class DisplayLinkNSView: NSView {
             self.view = view
         }
 
-        @objc func tick(_ sender: CADisplayLink) {
+        @objc func tick(_ link: CADisplayLink) {
             guard let view else {
-                sender.invalidate()
+                link.invalidate()
                 return
             }
-            view.onFrame()
+            // let duration = link.targetTimestamp - link.timestamp
+            // if duration > 0 { print("FPS: \(1.0 / duration)") }
+            view.processor.update() // Drive update() from the display's vsync
         }
     }
 
-    var onFrame: () -> Void
+    let processor: Processor
     var frameRate: Float {
         didSet { applyFrameRate() }
     }
     private var link: CADisplayLink?
 
-    init(frameRate: Float, onFrame: @escaping () -> Void) {
+    init(frameRate: Float, processor: Processor) {
         self.frameRate = frameRate
-        self.onFrame = onFrame
+        self.processor = processor
         super.init(frame: .zero)
     }
 
