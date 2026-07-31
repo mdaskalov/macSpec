@@ -9,6 +9,23 @@ import SwiftUI
 import AppKit
 import QuartzCore
 
+extension Double {
+    var noFraction: String {
+        self.formatted(.number.precision(.fractionLength(0)))
+    }
+    var withFraction: String {
+        self.formatted(.number.precision(.fractionLength(0...2)))
+    }
+    var scaled: String {
+        self < 1000 ? self.noFraction : (self / 1000).withFraction
+    }
+    var inMs: String {
+        self.scaled.appending(self < 1000 ? " ms" :" s")
+    }
+    var inHz: String {
+        self.scaled.appending(self < 1000 ? " Hz" :" kHz")
+    }
+}
 
 struct AppView: View {
     // @State, not @StateObject: Processor publishes nothing, so this is lifetime
@@ -40,12 +57,9 @@ struct AppView: View {
             HStack {
                 WaveView(frame: processor.frame)
                     .aspectRatio(1.6, contentMode: .fit)
-                    .frame(maxHeight: 150)
-                VStack(alignment: .leading) {
-                    TestToneControls(configuration: configuration)
-                    DisplaySettings(configuration: configuration)
-                }
-                .frame(maxWidth: .infinity)
+                    .frame(maxHeight: 130)
+                DisplaySettings(configuration: configuration)
+                    .frame(maxWidth: .infinity)
             }
             SpecView(frame: processor.frame)
             Spacer()
@@ -56,82 +70,54 @@ struct AppView: View {
     }
 }
 
-// The test tone row. While the sweep runs it is testFrequency that moves, once
-// per tick, and both the slider position and the Hz readout have to follow it.
-// Split out so that redraw lands here instead of on the whole window.
-private struct TestToneControls: View {
-    @ObservedObject var configuration: Configuration
-
-    var body: some View {
-        HStack {
-            Toggle("Test", isOn: $configuration.isTest)
-                .toggleStyle(.button)
-
-            HStack {
-                Toggle(isOn: $configuration.isAnimating) {
-                    Image(systemName: configuration.isAnimating ? "pause.fill" : "play.fill")
-                        .imageScale(.small)
-                        .padding(3)
-                }
-                .toggleStyle(.button)
-                .buttonBorderShape(.circle)
-                .disabled(!configuration.isTest)
-                Slider(value: $configuration.testFrequency, in: configuration.minFrequency...configuration.maxFrequency)
-                Text("\(configuration.testFrequency, format: .number.precision(.fractionLength(2))) Hz")
-                    .lineLimit(1)
-            }
-            .opacity(configuration.isTest ? 1 : 0)
-        }
-    }
-}
-
-// The three tunables. Redraws while any of them is being dragged - and, because
-// ObservableObject notifies per object rather than per property, also while the
-// sweep runs. Still far cheaper than redrawing the window.
 private struct DisplaySettings: View {
     @ObservedObject var configuration: Configuration
 
-    private let columns = [GridItem(.fixed(130)), GridItem(.flexible())]
+    private let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .leading) {
+        Grid(alignment: .leading) {
             GridRow {
-                Text("Floor: \(configuration.dbFloor, format: .number.precision(.fractionLength(1))) dB")
-                Slider(value: $configuration.dbFloor, in: -90...(0))
+                HStack {
+                    Toggle("Test", isOn: $configuration.isTest)
+                        .toggleStyle(.button)
+                    Toggle(isOn: $configuration.isAnimating) {
+                        Image(systemName: configuration.isAnimating ? "pause.fill" : "play.fill")
+                            .imageScale(.small)
+                            .padding(3)
+                    }
+                    .toggleStyle(.button)
+                    .buttonBorderShape(.circle)
+                    .disabled(!configuration.isTest)
+                    .opacity(configuration.isTest ? 1 : 0)
+                }
+                Text(configuration.testFrequency.inHz)
+                    .frame(width: 65, alignment: .trailing)
+                    .opacity(configuration.isTest ? 1 : 0)
+                Slider(value: $configuration.testFrequency, in: configuration.minFrequency...configuration.maxFrequency)
+                    .opacity(configuration.isTest ? 1 : 0)
             }
             GridRow {
-                DurationText("Bar Decay", milliseconds: configuration.barDecayMs)
-                Slider(value: $configuration.barDecayMs, in: 10...1000)
+                Text("Floor:")
+                Text("\(Double(configuration.dbFloor).withFraction) dB")
+                    .frame(width: 65, alignment: .trailing)
+                Slider(value: $configuration.dbFloor, in: -90...(-20))
             }
             GridRow {
-                DurationText("Peak Hold", milliseconds: configuration.peakHoldMs)
+                Text("Bar Decay:")
+                Text(configuration.barDecayMs.inMs)
+                    .frame(width: 65, alignment: .trailing)
+                Slider(value: $configuration.barDecayMs, in: 0...1500)
+            }
+            GridRow {
+                Text("Peak Hold")
+                Text(configuration.peakHoldMs.inMs)
+                    .frame(width: 65, alignment: .trailing)
                 Slider(value: $configuration.peakHoldMs, in: 0...2000)
             }
         }
     }
-}
 
-// Readout for millisecond sliders. Whole milliseconds while the value
-// stays under a second, then seconds with at most two decimal
-private struct DurationText: View {
-    let label: String
-    let milliseconds: Double
-
-    init(_ label: String, milliseconds: Double) {
-        self.label = label
-        self.milliseconds = milliseconds
-    }
-
-    var body: some View {
-        Text("\(label): \(formatted)")
-            .lineLimit(1)
-    }
-
-    private var formatted: String {
-        milliseconds < 1000
-            ? "\(milliseconds.formatted(.number.precision(.fractionLength(0)))) ms"
-            : "\((milliseconds / 1000).formatted(.number.precision(.fractionLength(0...2)))) s"
-    }
 }
 
 // Drives a per-frame callback from the display's vsync via CADisplayLink instead
