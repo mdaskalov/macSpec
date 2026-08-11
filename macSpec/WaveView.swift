@@ -2,49 +2,62 @@
 //  WaveView.swift
 //  macSpec
 //
-//  Created by Milko Daskalov on 26.07.16.
-//  Copyright © 2016 Milko Daskalov. All rights reserved.
+//  Created by Milko Daskalov on 21.12.24.
+//  Copyright © 2024 Milko Daskalov. All rights reserved.
 //
+import SwiftUI
 
-import Cocoa
+struct WaveView: View {
+    @ObservedObject var frame: FrameData
 
-let kWaveformLength = 512
-let kWaveViewLength = kWaveformLength / 4
-let kGain:Float = 1
+    private let lineWidth = 0.7
+    private let borderWidth = 1.0
 
-class WaveView: NSView {
-    
-    var waveform = [Float](repeating: 0.0, count: kWaveformLength)
-    
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        
-        //CATransaction.begin()
-        //CATransaction.setDisableActions(true)
-        
-        dirtyRect.fill()
-        NSColor.white.set()
-        let path = NSBezierPath()
-        
-        let size = self.frame.size
-        
-        let xScale = size.width / CGFloat(kWaveViewLength);
-        
-        path.move(to: NSMakePoint(0, CGFloat(waveform[0] * kGain * 0.5 + 0.5) * size.height))
-        for i in 1...kWaveViewLength {
-            let x = xScale * CGFloat(i)
-            let y = CGFloat(waveform[i] * kGain * 0.5 + 0.5) * size.height
-            path.line(to: NSMakePoint(x, y))
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            let height = size.height / 2
+            let step = size.width / CGFloat(frame.samples.count)
+            var x = 0.0
+            for (index, value) in frame.samples.enumerated() {
+                if index == 0 {
+                    path.move(to: CGPoint(x: x, y: height - (value * height)))
+                } else {
+                    path.addLine(to: CGPoint(x: x, y: height - (value * height)))
+                }
+                x += step
+            }
+            context.stroke(path, with: .color(.white), lineWidth: lineWidth)
         }
-        path.lineWidth = 1
-        path.stroke()
-        //CATransaction.commit()
+        .padding(borderWidth)
+        .background(.black)
+        .border(Color(.specBorder), width: borderWidth)
     }
-    
-    func generateWaveform(_ phase: Double) {
-        for i in 0..<waveform.count {
-            waveform[i] = 1.0 * sin(Float(Double(i)*phase)/64.0)
-        }
-        
+
+}
+
+#Preview {
+    @Previewable @State var frame = FrameData(samplesCount: 400, barsCount: 60)
+    @Previewable @State var frequency = 0.5
+
+    // A sine filling the sample buffer whose frequency the slider drives, so
+    // the preview exercises WaveView without any live audio.
+    func simulate(_ frequency: Double) {
+        let samplesCount = frame.samples.count
+        let cycles = frequency * 20
+        let omega = 2 * Double.pi * cycles / Double(samplesCount)
+        let samples = (0..<samplesCount).map { CGFloat(sin(Double($0) * omega)) }
+        frame.publish(samples: samples, bars: [], peaks: [])
+    }
+
+    return VStack {
+        Slider(value: $frequency, in: 0...1)
+        WaveView(frame: frame)
+            .aspectRatio(1.6, contentMode: .fit)
+            .frame(height: 150)
+    }
+    .padding()
+    .onChange(of: frequency, initial: true) { _, newValue in
+        simulate(newValue)
     }
 }

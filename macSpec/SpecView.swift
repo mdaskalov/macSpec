@@ -5,106 +5,74 @@
 //  Created by Milko Daskalov on 28.07.16.
 //  Copyright © 2016 Milko Daskalov. All rights reserved.
 //
+import SwiftUI
 
-import Cocoa
-import Foundation
-import Accelerate
+struct SpecView: View {
+    @ObservedObject var frame: FrameData
 
-let kSpecViewLength = kWaveformLength / 4
+    private let borderWidth: CGFloat = 1.0
 
-class SpecView: NSView {
+    var body: some View {
+        Canvas { context, size in
+            let bars = frame.bars
+            let peaks = frame.peaks
+            let barsCount = CGFloat(bars.count)
+            let barGap = size.width / (barsCount + 1) / 10
+            let gapsWidth = (barsCount + 1) * barGap
+            let barWidth = (size.width - gapsWidth) / barsCount
+            let barsHeight = size.height - 2 * barGap
+            let xAdjust = barWidth + barGap
+            let minBarHeight = 1.0
+            var barPath = Path()
+            var peakPath = Path()
 
-    var barDelay:Float = 0.05;
-    var peakDelay = 50;
-    
-    let fftLength = vDSP_Length(log2(Float(kWaveformLength)))
-    let fftSetup: FFTSetup
-    
-    var fftResult = [Float](repeating: 0.0, count: kWaveformLength)
-    var bar = [Float](repeating: 0, count: kSpecViewLength)
-    var peak = [Float](repeating: 0, count: kSpecViewLength)
-    var peakTime = [Int](repeating: 0, count: kSpecViewLength)
-  
-    /*
-    var maxFrequency: Float {
-        get {
-            var res:Float = 0
-            var maxValue:Float = 0
-            var maxIndex:vDSP_Length = 0
-            
-            vDSP_maxvi(&fftResult, 1, &maxValue, &maxIndex, vDSP_Length(fftResult.count))
-            
-            if maxValue > 0.01 {
-                let maxFreq = AudioInputHandler.sharedInstance().sampleRate;
-                res = Float(maxIndex) / Float(fftResult.count) * maxFreq;
+            for bar in 0..<bars.count {
+                let x = barGap + CGFloat(bar) * xAdjust
+                let y = max(bars[bar] * barsHeight, minBarHeight)
+                let yPeak = peaks[bar] * barsHeight
+
+                barPath.addRect(CGRect(x: x, y: size.height - barGap - y, width: barWidth, height: y))
+
+                if yPeak > y {
+                    peakPath.move(to: CGPoint(x: x, y: size.height - barGap - yPeak))
+                    peakPath.addLine(to: CGPoint(x: x + barWidth, y: size.height - barGap - yPeak))
+                }
             }
-            return res
+
+            context.fill(barPath, with: .color(.yellow))
+            context.stroke(peakPath, with: .color(.red), lineWidth: 1)
         }
+        .padding(borderWidth)
+        .background(.black)
+        .border(Color(.specBorder), width: borderWidth)
     }
-    */
-    
-    required init?(coder: NSCoder) {
-        fftSetup = vDSP_create_fftsetup(fftLength, FFTRadix(kFFTRadix2))!
-        
-        super.init(coder: coder)
-    }
-    
-    deinit {
-        vDSP_destroy_fftsetup(fftSetup)
-    }
+}
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        
-        NSColor.black.setFill()
-        dirtyRect.fill()
-        NSColor.yellow.setFill()
-        NSColor.red.setStroke()
-        let path = NSBezierPath()
-        
-        let size = self.frame.size
-        let barGap: CGFloat = (size.width) / CGFloat(kSpecViewLength) / 10
-        let barWidth:CGFloat = (size.width - CGFloat(kSpecViewLength+1) * barGap) / CGFloat(kSpecViewLength)
-        let xAdjust = barWidth + barGap
-        let yAdjust = size.height - barGap
-        
-        for i in 0..<kSpecViewLength {
-            let barValue = fftResult[i].squareRoot()
-            bar[i] = barValue >= bar[i] ? barValue : bar[i] - barDelay
+#Preview {
+    @Previewable @State var frame = FrameData(samplesCount: 400, barsCount: 51)
+    @Previewable @State var position = 0.5
 
-            let x = barGap + CGFloat(i) * xAdjust
-            let y = CGFloat(bar[i]) * yAdjust;
-            let yPeak = CGFloat(peak[i]) * yAdjust;
-
-            peakTime[i] += 1
-            if (peakTime[i] > peakDelay) || (bar[i] > peak[i]) {
-                peakTime[i] = 0
-                peak[i] = bar[i]
-            }
-
-            if (yPeak > y) {
-                path.move(to: NSMakePoint(x, yPeak))
-                path.line(to: NSMakePoint(x+barWidth, yPeak))
-            }
-            NSMakeRect(x, barGap, barWidth, y-barGap).fill();
+    // A moving bell curve of bars with the peaks held a little above them, so
+    // the preview exercises both paths SpecView draws without any live audio.
+    func simulate(_ position: Double) {
+        let barsCount = frame.bars.count
+        let center = position * Double(barsCount - 1)
+        let width = Double(barsCount) / 15
+        let bars = (0..<barsCount).map { bar -> CGFloat in
+            let distance = (Double(bar) - center) / width
+            return CGFloat(exp(-distance * distance))
         }
-        path.lineWidth = 1
-        path.stroke()
+        let peaks = bars.map { min($0 + 0.02, 1.0) }
+        frame.publish(samples: [], bars: bars, peaks: peaks)
     }
 
-    func calculateSpectrum(_ waveform: [Float]) {
-        var real = [Float](waveform)
-        var imag = [Float](repeating: 0.0, count: real.count)
-        
-        var splitComplex = DSPSplitComplex(realp: &real, imagp: &imag)
-        
-        var fftResultRaw = [Float](repeating: 0.0, count: real.count)
-        
-        vDSP_fft_zip(fftSetup, &splitComplex, 1, fftLength, FFTDirection(FFT_FORWARD))
-        
-        vDSP_zvmags(&splitComplex, 1, &fftResultRaw, 1, vDSP_Length(fftResultRaw.count))
-        
-        vDSP_vsmul(&fftResultRaw, 1, [0.07 / Float(fftResult.count)], &fftResult, 1, vDSP_Length(fftResult.count))
+    return VStack {
+        Slider(value: $position, in: 0...1)
+        SpecView(frame: frame)
     }
-    
+    .padding()
+    .frame(width: 500, height: 470)
+    .onChange(of: position, initial: true) { _, newValue in
+        simulate(newValue)
+    }
 }
